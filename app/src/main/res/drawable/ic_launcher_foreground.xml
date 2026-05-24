@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Otto launcher icon foreground.
+
+  Recreates the in-app Otto sprite (rows 4–15 of the OctopusMascot.kt grid —
+  head + face + the top of the tentacles) as a 20-wide × 12-tall pixel grid
+  rendered at 3 viewport-units per pixel, centred in the 108 × 108 adaptive-icon
+  viewport. Otto's bounding box ends up at (24, 36)–(84, 72), comfortably inside
+  the 66-unit-diameter safe zone for all common launcher mask shapes.
+
+  Each "pixel" is one short relative-path block ("Mxx,yyhWvHh-Wz") concatenated
+  into a single pathData per colour layer. Drawn back-to-front so later layers
+  override earlier ones at overlaps (highlights over body, eyes over body,
+  pupils over eye whites, etc.).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Body (Otto purple) — rows 4-13 in row-by-row strips. -->
+    <path
+        android:fillColor="#8866EE"
+        android:pathData="M42,36h24v3h-24zM36,39h36v3h-36zM30,42h48v3h-48zM27,45h54v3h-54zM24,48h60v12h-60zM27,60h54v3h-54zM30,63h48v3h-48z" />
+
+    <!-- Top-of-head highlights (lighter purple). -->
+    <path
+        android:fillColor="#B99AFF"
+        android:pathData="M45,36h6v3h-6zM39,39h6v3h-6z" />
+
+    <!-- Eye whites — left and right 4×3 blocks. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,48h12v9h-12zM63,48h12v9h-12z" />
+
+    <!-- Pupils. -->
+    <path
+        android:fillColor="#110022"
+        android:pathData="M36,51h6v6h-6zM66,51h6v6h-6z" />
+
+    <!-- Eye shine — single 3×3 pixel over the top-left of each pupil. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,51h3v3h-3zM66,51h3v3h-3z" />
+
+    <!-- Cheek blushes. -->
+    <path
+        android:fillColor="#FF99CC"
+        android:pathData="M27,54h3v3h-3zM78,54h3v3h-3z" />
+
+    <!-- Mouth (idle smile: corners at row 12, middle at row 13). -->
+    <path
+        android:fillColor="#330033"
+        android:pathData="M48,60h3v3h-3zM57,60h3v3h-3zM51,63h6v3h-6z" />
+
+    <!-- Tentacle tops (deeper purple shade) — 6 stubs across rows 14-15. -->
+    <path
+        android:fillColor="#5544AA"
+        android:pathData="M27,66h6v6h-6zM36,66h6v6h-6zM45,66h6v6h-6zM57,66h6v6h-6zM66,66h6v6h-6zM75,66h6v6h-6z" />
+</vector>

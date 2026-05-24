@@ -1,0 +1,24 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# Signing — NEVER commit these
+*.jks
+*.keystore
+local.properties
+keystore.properties
+
+# Build outputs
+/app/build
+/app/release
+
+# Misc
+*.log
+.kotlin
+emulator_screenshot.png
