@@ -29,9 +29,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.ryan.smalltalk.llm.ModelState
 import com.ryan.smalltalk.llm.ModelStatus
 import com.ryan.smalltalk.llm.PipelineStatus
@@ -166,8 +171,22 @@ fun SettingsScreen(
             )
         }
 
+        Section("Support Otto") {
+            Text(
+                "Otto is free and always will be — no ads, no tracking, no subscription. If he's " +
+                    "useful to you, a tip helps keep him swimming. Tap an address to copy it.",
+                color = MutedText, fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 10.dp),
+            )
+            DonateRow("Monero (XMR)", MONERO_ADDRESS)
+            Spacer(Modifier.height(8.dp))
+            DonateRow("Bitcoin Lightning", LIGHTNING_INVOICE)
+            Spacer(Modifier.height(8.dp))
+            DonateRow("Bitcoin (on-chain)", BITCOIN_ADDRESS)
+        }
+
         Section("About") {
-            Text("Small Talk v2.0", color = Color.White, fontSize = 13.sp)
+            Text("Small Talk v1.0", color = Color.White, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Fully on-device. Built on Gemma via Google AI Edge LiteRT-LM (Apache 2.0). " +
@@ -176,6 +195,43 @@ fun SettingsScreen(
             )
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+// Public-by-design wallet addresses. Safe to ship in the clear.
+private const val MONERO_ADDRESS =
+    "4B3RLHnNS6tNeHEneTXcecTAntHknXzbLYR1yBP3yUWS9baUjdnHv4UdhjRubaSexuPGEGmJ4QKpxHdrHNjLMuZpHf15gUt"
+private const val LIGHTNING_INVOICE =
+    "lnbc1p4p8zqkdqdgdshx6pqg9c8qpp5une0x62xnlx9wemg6pxz20gdtjjq280hs0d3ll5sauwuttd0nh7qsp5t43pu7vwt5fguvjr2a0ap24tppzw9vd8nc63levax96exma20s0s9qrsgqcqzp2xqy8ayqrzjqv06k0m23t593pngl0jt7n9wznp64fqngvctz7vts8nq4tukvtljqzxm45qqvtgqqvqqqqqqqqqqqqqqxqrzjqfzhphca8jlc5zznw52mnqxsnymltjgg3lxe4ul82g42vw0jpkgkwzg65sqq2ggqqyqqqqqqqqqqqqqqxqu2ma9pqrjyu0c8skg4txhu2rgtv798hpk7hrsrg2q53mzh9y0e2959evu4xlln45sw06dqcf6mavxmellq2mncttzfds4jzrgqlj7wgp9aqnlj"
+private const val BITCOIN_ADDRESS = "bc1q4q0u5f7ya3ylwg3h4sdq5yw7cgfpl4ghpu9uap"
+
+@Composable
+private fun DonateRow(label: String, address: String) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                clipboard.setText(AnnotatedString(address))
+                Toast.makeText(context, "$label address copied", Toast.LENGTH_SHORT).show()
+            }
+            .background(Color(0xFF1f1f37), RoundedCornerShape(8.dp))
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f))
+            Text("Copy", color = AccentColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            // Truncate the middle of long addresses so the row stays tidy; full value is copied.
+            if (address.length > 26) "${address.take(14)}…${address.takeLast(10)}" else address,
+            color = MutedText,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+        )
     }
 }
 

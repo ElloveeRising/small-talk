@@ -82,6 +82,18 @@ Then `Build → Generate Signed App Bundle / APK → APK → release`, or `./gra
 
 ---
 
+## Support Otto 🐙
+
+Small Talk is free, open-source, and always will be — no ads, no tracking, no subscriptions. If Otto's useful to you, a tip keeps him swimming:
+
+- **Monero (XMR):** `4B3RLHnNS6tNeHEneTXcecTAntHknXzbLYR1yBP3yUWS9baUjdnHv4UdhjRubaSexuPGEGmJ4QKpxHdrHNjLMuZpHf15gUt`
+- **Bitcoin (on-chain):** `bc1q4q0u5f7ya3ylwg3h4sdq5yw7cgfpl4ghpu9uap`
+- **Bitcoin Lightning:** see the in-app **Settings → Support Otto** for a copy-ready invoice.
+
+(The same addresses are tap-to-copy inside the app under **Settings → Support Otto**.)
+
+---
+
 ## Credits & license
 
 Built on [Gemma](https://ai.google.dev/gemma) (Google) under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms), served via [Google AI Edge LiteRT-LM](https://ai.google.dev/edge/litert-lm) (Apache 2.0). The model weights are redistributed by the [`litert-community`](https://huggingface.co/litert-community) organization on Hugging Face.
