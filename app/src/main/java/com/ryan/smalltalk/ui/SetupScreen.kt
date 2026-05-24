@@ -4,9 +4,11 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,11 +28,11 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,18 +55,16 @@ fun SetupScreen(onReady: () -> Unit) {
     val app = context.applicationContext as SmallTalkApp
     val downloader = app.downloader
     val downloadState by downloader.state.collectAsState()
-    val coroutineScope = rememberCoroutineScope()
 
     var hasAllFiles by remember { mutableStateOf(ModelFiles.hasAllFilesAccess()) }
     var showAdvanced by remember { mutableStateOf(false) }
     var manualPath by remember { mutableStateOf(ModelFiles.getResponderPath(context) ?: "") }
+    // True after the user has tapped "Grant access" at least once — used to show a helpful
+    // "find the toggle on the screen that opened" hint if they come back without granting.
+    var permissionAttempted by remember { mutableStateOf(false) }
 
-    // Local detection: does the model file exist at the expected download path? If yes, we
-    // skip the download CTA and go straight to "Start". This also catches the case where the
-    // user re-opens setup after a successful download.
     val expectedFile = remember { File(ModelDownloader.ensureModelsDir(), E2B_FILENAME) }
     var modelReady by remember { mutableStateOf(expectedFile.exists() && expectedFile.length() > 0) }
-    // Picked-manually fallback is also acceptable
     val manualOk = ModelFiles.isReadable(manualPath)
 
     val allFilesLauncher = rememberLauncherForActivityResult(
@@ -82,13 +82,34 @@ fun SetupScreen(onReady: () -> Unit) {
             } else {
                 Toast.makeText(
                     context,
-                    "Couldn't resolve a real file path. Paste the path manually below.",
+                    "Couldn't read that file's location. Paste the full path below instead.",
                     Toast.LENGTH_LONG,
                 ).show()
             }
         }
     }
 
+    // Launch the download on the app-lifetime scope so rotating the phone or briefly
+    // leaving the screen won't cancel a multi-GB transfer.
+    fun startDownload() {
+        downloader.reset()
+        app.appScope.launch {
+            val path = downloader.download(context, ModelDownloader.E2B_URL, E2B_FILENAME)
+            if (path != null) ModelFiles.setResponderPath(context, path)
+        }
+    }
+
+    // When the download (running on appScope) reports Done, reflect it in the UI: persist
+    // the path and flip modelReady so the "Wake Otto up" button unlocks.
+    LaunchedEffect(downloadState) {
+        val s = downloadState
+        if (s is ModelDownloader.State.Done) {
+            ModelFiles.setResponderPath(context, s.absolutePath)
+            modelReady = true
+        }
+    }
+
+    val isDownloading = downloadState is ModelDownloader.State.Downloading
     val canStart = hasAllFiles && (modelReady || manualOk)
 
     Column(
@@ -101,17 +122,16 @@ fun SetupScreen(onReady: () -> Unit) {
     ) {
         Spacer(Modifier.height(24.dp))
 
-        // ── Otto front and center ──
+        // ── Otto, front and center ──
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Otto(
                 mood = when {
-                    downloadState is ModelDownloader.State.Downloading -> OttoMood.TYPING
-                    downloadState is ModelDownloader.State.Done || modelReady -> OttoMood.EXCITED
-                    else -> OttoMood.IDLE
+                    isDownloading -> OttoMood.TYPING
+                    modelReady || downloadState is ModelDownloader.State.Done -> OttoMood.EXCITED
+                    else -> OttoMood.WAVING
                 },
                 skin = OttoSkin.PURPLE,
                 pixel = 5.dp,
-                modifier = Modifier.size(100.dp, 105.dp),
             )
         }
         Spacer(Modifier.height(4.dp))
@@ -121,161 +141,163 @@ fun SetupScreen(onReady: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "I'm a small assistant that runs entirely on your phone — nothing you tell me leaves " +
-                "this device. To get started, I need a brain. Two steps and you're in.",
+            "I'm a little assistant who lives entirely on your phone — nothing you tell me ever " +
+                "leaves this device. Let's get me set up. It's just two steps, and I'll wait " +
+                "for you at each one.",
             color = MutedText, fontSize = 14.sp,
         )
 
         // ── Step 1: Permission ──
-        StepCard("1. Allow file access") {
+        StepCard(
+            title = "Step 1 of 2 — Let me reach my brain file",
+            done = hasAllFiles,
+        ) {
             if (hasAllFiles) {
-                Text("Granted ✓", color = Color(0xFF6ad97c), fontSize = 13.sp)
+                Text(
+                    "Done — thanks! On to step 2. 👇",
+                    color = Color(0xFF6ad97c), fontSize = 13.sp,
+                )
             } else {
                 Text(
-                    "Otto's brain is a multi-gig file that lives on your phone's storage. I " +
-                        "read it directly from disk (never copied). Tap to allow.",
+                    "My \"brain\" is a big file that sits in your phone's storage. Android needs " +
+                        "you to give me permission to read it. When you tap the button below, a " +
+                        "settings screen opens — just flip the switch ON for \"Small Talk\", then " +
+                        "tap back. That's it.",
                     color = MutedText, fontSize = 13.sp,
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = {
-                    allFilesLauncher.launch(ModelFiles.allFilesAccessIntent(context))
-                }) { Text("Grant access") }
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        permissionAttempted = true
+                        allFilesLauncher.launch(ModelFiles.allFilesAccessIntent(context))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+                ) { Text("Give permission", color = Color.White) }
+                if (permissionAttempted) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Didn't work? Open the settings screen again, find \"Small Talk\" in the " +
+                            "list, and turn its switch ON.",
+                        color = Color(0xFFffb070), fontSize = 12.sp,
+                    )
+                }
             }
         }
 
-        // ── Step 2: Download or use existing ──
-        StepCard("2. Give Otto a brain") {
-            when (val s = downloadState) {
-                is ModelDownloader.State.Downloading -> DownloadProgressBlock(s)
-                is ModelDownloader.State.Done -> {
-                    // Side-effect: persist the path so ModelFiles.isConfigured() flips true
-                    LaunchedEffectOnce(s.absolutePath) {
-                        ModelFiles.setResponderPath(context, s.absolutePath)
-                        modelReady = true
-                    }
-                    Text("Brain ready ✓", color = Color(0xFF6ad97c), fontSize = 13.sp)
+        // ── Step 2: Download the brain ──
+        StepCard(
+            title = "Step 2 of 2 — Download my brain",
+            done = modelReady,
+            dimmed = !hasAllFiles,
+        ) {
+            when {
+                !hasAllFiles -> {
                     Text(
-                        "Saved to Downloads/${ModelDownloader.MODELS_DIR_PUBLIC}/",
-                        color = MutedText, fontSize = 11.sp,
+                        "Finish step 1 first, then I'll grab my brain.",
+                        color = MutedText, fontSize = 13.sp,
                     )
                 }
-                is ModelDownloader.State.Failed -> {
+                modelReady -> {
+                    Text("My brain's ready ✓", color = Color(0xFF6ad97c), fontSize = 14.sp)
                     Text(
-                        "Download failed: ${s.reason}",
-                        color = Color(0xFFff7070), fontSize = 12.sp,
+                        "Stored safely in your Downloads folder. You only download this once.",
+                        color = MutedText, fontSize = 12.sp,
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            downloader.reset()
-                            coroutineScope.launch {
-                                val path = downloader.download(
-                                    context = context,
-                                    url = ModelDownloader.E2B_URL,
-                                    filename = E2B_FILENAME,
-                                )
-                                if (path != null) {
-                                    ModelFiles.setResponderPath(context, path)
-                                    modelReady = true
-                                }
-                            }
-                        }) { Text("Try again") }
-                        TextButton(onClick = { showAdvanced = true }) {
-                            Text("Use a file I already have", color = AccentColor)
-                        }
-                    }
                 }
-                ModelDownloader.State.Idle -> {
-                    if (modelReady) {
-                        Text("Brain found ✓", color = Color(0xFF6ad97c), fontSize = 13.sp)
-                        Text(
-                            "Already at Downloads/${ModelDownloader.MODELS_DIR_PUBLIC}/.",
-                            color = MutedText, fontSize = 11.sp,
-                        )
-                    } else {
-                        Text(
-                            "Otto runs on Gemma 4 E2B — Google's compact on-device model. " +
-                                "About 3 GB, one-time download.",
-                            color = MutedText, fontSize = 13.sp,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = {
-                                if (!hasAllFiles) {
-                                    Toast.makeText(
-                                        context,
-                                        "Grant file access first.",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                    return@OutlinedButton
-                                }
-                                coroutineScope.launch {
-                                    val path = downloader.download(
-                                        context = context,
-                                        url = ModelDownloader.E2B_URL,
-                                        filename = E2B_FILENAME,
-                                    )
-                                    if (path != null) {
-                                        ModelFiles.setResponderPath(context, path)
-                                        modelReady = true
-                                    }
-                                }
-                            },
-                        ) { Text("Download Otto's brain") }
-                    }
+                isDownloading -> {
+                    DownloadProgressBlock(downloadState as ModelDownloader.State.Downloading)
+                }
+                downloadState is ModelDownloader.State.Failed -> {
+                    val reason = (downloadState as ModelDownloader.State.Failed).reason
+                    Text(
+                        "Hmm, the download didn't finish.",
+                        color = Color(0xFFff7070), fontSize = 14.sp,
+                    )
+                    Text(
+                        "($reason)\nCheck you're on Wi-Fi with a steady connection, then try again.",
+                        color = MutedText, fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { startDownload() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+                    ) { Text("Try again", color = Color.White) }
+                }
+                else -> {
+                    Text(
+                        "I run on Gemma — Google's compact on-device model. The download is about " +
+                            "3 GB, so a few things to know:",
+                        color = MutedText, fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Bullet("Use Wi-Fi — it's a big file.")
+                    Bullet("Keep this screen open while it downloads.")
+                    Bullet("It takes a few minutes. You'll see a progress bar.")
+                    Bullet("You only ever do this once.")
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { startDownload() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+                    ) { Text("Download my brain (~3 GB)", color = Color.White) }
                 }
             }
 
-            // Advanced section — "I already have a file" fallback
-            Spacer(Modifier.height(8.dp))
-            TextButton(
-                onClick = { showAdvanced = !showAdvanced },
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-            ) {
-                Text(
-                    if (showAdvanced) "Hide advanced" else "Already have a file? Set up manually",
-                    color = MutedText, fontSize = 12.sp,
-                )
-            }
-            if (showAdvanced) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Point Otto at any .litertlm file on your phone. The file must be on the " +
-                        "shared storage (e.g. /storage/emulated/0/Download/…) — files inside " +
-                        "another app's private folder won't work.",
-                    color = MutedText, fontSize = 11.sp,
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { manualPicker.launch(arrayOf("*/*")) }) {
-                    Text("Choose file")
+            // Advanced fallback — quiet, for people who already have the file.
+            if (!modelReady && !isDownloading) {
+                Spacer(Modifier.height(10.dp))
+                TextButton(
+                    onClick = { showAdvanced = !showAdvanced },
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text(
+                        if (showAdvanced) "Hide advanced" else "Already have the file? Tap here",
+                        color = MutedText, fontSize = 12.sp,
+                    )
                 }
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = manualPath,
-                    onValueChange = {
-                        manualPath = it
-                        if (ModelFiles.isReadable(it)) ModelFiles.setResponderPath(context, it)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("/storage/emulated/0/…/gemma-4-E2B-it.litertlm",
-                        color = MutedText, fontSize = 11.sp) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputFieldColor,
-                        unfocusedContainerColor = InputFieldColor,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = AccentColor,
-                        unfocusedBorderColor = Color.Transparent,
-                        cursorColor = AccentColor,
-                    ),
-                )
-                Text(
-                    if (manualOk) "Found ✓" else "Not found yet",
-                    color = if (manualOk) Color(0xFF6ad97c) else Color(0xFFff7070),
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+                if (showAdvanced) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Point me at a .litertlm file already on your phone. It must be in shared " +
+                            "storage (like your Downloads folder).",
+                        color = MutedText, fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { manualPicker.launch(arrayOf("*/*")) }) {
+                        Text("Choose file")
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = manualPath,
+                        onValueChange = {
+                            manualPath = it
+                            if (ModelFiles.isReadable(it)) ModelFiles.setResponderPath(context, it)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = {
+                            Text("/storage/emulated/0/…/gemma-4-E2B-it.litertlm",
+                                color = MutedText, fontSize = 11.sp)
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = InputFieldColor,
+                            unfocusedContainerColor = InputFieldColor,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = AccentColor,
+                            unfocusedBorderColor = Color.Transparent,
+                            cursorColor = AccentColor,
+                        ),
+                    )
+                    Text(
+                        if (manualOk) "Found it ✓" else "Not found yet",
+                        color = if (manualOk) Color(0xFF6ad97c) else Color(0xFFff7070),
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
         }
 
@@ -283,18 +305,27 @@ fun SetupScreen(onReady: () -> Unit) {
         Button(
             onClick = onReady,
             enabled = canStart,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = AccentColor,
                 disabledContainerColor = Color(0xFF3a3a55),
             ),
         ) {
             Text(
-                if (canStart) "Wake Otto up" else "Finish the steps above",
+                if (canStart) "Wake Otto up →" else "Finish both steps to continue",
                 color = Color.White,
+                fontWeight = FontWeight.SemiBold,
             )
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun Bullet(text: String) {
+    Row(modifier = Modifier.padding(vertical = 1.dp)) {
+        Text("•  ", color = AccentColor, fontSize = 13.sp)
+        Text(text, color = MutedText, fontSize = 13.sp)
     }
 }
 
@@ -308,25 +339,25 @@ private fun DownloadProgressBlock(s: ModelDownloader.State.Downloading) {
         val secs = remaining / s.bytesPerSec
         when {
             secs < 60 -> "~${secs}s left"
-            secs < 3600 -> "~${secs / 60}m left"
-            else -> "~${secs / 3600}h left"
+            secs < 3600 -> "~${secs / 60} min left"
+            else -> "~${secs / 3600} hr left"
         }
     } else ""
     val rateStr = if (s.bytesPerSec > 0) "${(s.bytesPerSec / 1_000_000.0).format(1)} MB/s" else ""
 
     Column {
-        Text("Downloading Otto's brain…", color = Color.White, fontSize = 13.sp)
-        Spacer(Modifier.height(6.dp))
+        Text("Downloading my brain… hang tight! 🐙", color = Color.White, fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
         if (s.totalBytes > 0) {
             LinearProgressIndicator(
                 progress = { s.pct },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
+                modifier = Modifier.fillMaxWidth().height(8.dp),
                 color = AccentColor,
                 trackColor = Color(0xFF333355),
             )
         } else {
             LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(6.dp),
+                modifier = Modifier.fillMaxWidth().height(8.dp),
                 color = AccentColor,
                 trackColor = Color(0xFF333355),
             )
@@ -340,27 +371,51 @@ private fun DownloadProgressBlock(s: ModelDownloader.State.Downloading) {
             Text(listOf(rateStr, eta).filter { it.isNotBlank() }.joinToString(" · "),
                 color = MutedText, fontSize = 11.sp)
         }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Keep this screen open. You can put the phone down — just don't close the app.",
+            color = MutedText, fontSize = 11.sp,
+        )
     }
 }
 
 @Composable
-private fun StepCard(title: String, content: @Composable () -> Unit) {
+private fun StepCard(
+    title: String,
+    done: Boolean = false,
+    dimmed: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val border = when {
+        done -> Color(0xFF6ad97c)
+        dimmed -> Color(0xFF2a2a4a)
+        else -> AccentColor
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(AssistantBubbleColor, RoundedCornerShape(12.dp))
+            .border(
+                width = if (done || !dimmed) 1.5.dp else 1.dp,
+                color = border,
+                shape = RoundedCornerShape(12.dp),
+            )
             .padding(16.dp),
     ) {
-        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (done) {
+                Text("✓ ", color = Color(0xFF6ad97c), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                title,
+                color = if (dimmed) MutedText else Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
         content()
     }
-}
-
-/** Runs `block` once when [key] becomes non-null (so a Done state side-effect fires once). */
-@Composable
-private fun LaunchedEffectOnce(key: Any, block: suspend () -> Unit) {
-    androidx.compose.runtime.LaunchedEffect(key) { block() }
 }
 
 private fun Double.format(decimals: Int): String = "%.${decimals}f".format(this)

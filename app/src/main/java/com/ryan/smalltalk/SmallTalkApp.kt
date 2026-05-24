@@ -8,6 +8,9 @@ import com.ryan.smalltalk.llm.ModelManager
 import com.ryan.smalltalk.pipeline.ChatPipeline
 import com.ryan.smalltalk.tools.SmallTalkToolSet
 import com.ryan.smalltalk.tools.ToolExecutor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class SmallTalkApp : Application() {
 
@@ -17,6 +20,13 @@ class SmallTalkApp : Application() {
     val toolExecutor: ToolExecutor by lazy { ToolExecutor(webAugmentationEnabled) }
     val toolBridge: SmallTalkToolSet by lazy { SmallTalkToolSet(toolExecutor) }
     val pipeline: ChatPipeline by lazy { ChatPipeline(models, toolExecutor, toolBridge) }
+
+    /**
+     * Process-lifetime scope for long work that must outlive a single screen — notably the
+     * multi-GB model download, which would otherwise be cancelled if the setup screen is
+     * recomposed away (rotation, brief backgrounding). Survives until process death.
+     */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()

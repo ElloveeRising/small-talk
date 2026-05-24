@@ -43,6 +43,8 @@ enum class OttoMood {
     WAVING,
     READING,    // user is typing — Otto peeks down at the input
     WINKING,    // long-press easter egg
+    CONFUSED,   // shown briefly when something goes wrong
+    CRAWLING,   // walk cycle, used while Otto strolls across the strip
 }
 
 /**
@@ -122,6 +124,7 @@ fun Otto(
     skin: OttoSkin = OttoSkin.PURPLE,
     pixel: Dp = 3.dp,
     reaction: OttoReaction = OttoReaction.NORMAL,
+    wearingCap: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val transition = rememberInfiniteTransition(label = "otto-$mood")
@@ -142,6 +145,8 @@ fun Otto(
                     OttoMood.WAVING -> 500
                     OttoMood.READING -> 900   // scanning eyes side-to-side
                     OttoMood.WINKING -> 1200
+                    OttoMood.CONFUSED -> 700
+                    OttoMood.CRAWLING -> 360  // brisk walk cycle
                 },
                 easing = LinearEasing,
             ),
@@ -193,6 +198,8 @@ fun Otto(
         OttoMood.WAVING -> if (phase < 0.5f) 0 else 1
         OttoMood.READING -> ((phase * 4f).toInt()).coerceIn(0, 3)
         OttoMood.WINKING -> if (phase < 0.85f) 0 else 1  // wink held most of cycle, brief snap-back
+        OttoMood.CONFUSED -> ((phase * 2f).toInt()).coerceIn(0, 1)
+        OttoMood.CRAWLING -> if (phase < 0.5f) 0 else 1   // two-step walk gait
     }
     val blinking = blinkPhase > 0.94f
 
@@ -215,10 +222,15 @@ fun Otto(
         fun row(xs: IntRange, y: Int, c: Color) = xs.forEach { px(it, y, c) }
 
         // ── Accessory rows 0-3 ────────────────────────────────────────────────
-        when (mood) {
-            OttoMood.THINKING -> drawCap(::px, ::row)
-            OttoMood.SLEEPING -> drawSleepingZs(::px, frame)
-            OttoMood.SEARCHING -> drawMagnifyingGlass(::px, ::row, skin, frame)
+        // Priority: an action that needs the top rows (searching = magnifier,
+        // sleeping = Zs) wins; otherwise the thinking cap shows whenever thinking
+        // mode is on — including while Otto reads your input or sits idle, so it no
+        // longer pops off the moment you start typing.
+        when {
+            mood == OttoMood.SEARCHING -> drawMagnifyingGlass(::px, ::row, skin, frame)
+            mood == OttoMood.SLEEPING -> drawSleepingZs(::px, frame)
+            mood == OttoMood.CONFUSED -> drawQuestionMark(::px)
+            wearingCap -> drawCap(::px, ::row)
             else -> {}
         }
 
@@ -264,6 +276,18 @@ fun Otto(
             blinking -> {
                 row(3..6, 9, EyePupil)
                 row(13..16, 9, EyePupil)
+            }
+            mood == OttoMood.CONFUSED -> {
+                // Misaligned eyes — one up, one down — the universal "huh??" look.
+                for (y in 8..10) {
+                    row(3..6, y, EyeWhite)
+                    row(13..16, y, EyeWhite)
+                }
+                // Left pupil HIGH, right pupil LOW
+                px(4, 8, EyePupil); px(5, 8, EyePupil)
+                px(4, 9, EyePupil); px(5, 9, EyePupil)
+                px(14, 10, EyePupil); px(15, 10, EyePupil)
+                px(14, 9, EyePupil); px(15, 9, EyePupil)
             }
             mood == OttoMood.WINKING && frame == 0 -> {
                 // Left eye open normally
@@ -389,6 +413,16 @@ fun Otto(
                     }
                 }
             }
+            OttoMood.CONFUSED -> {
+                // Small off-centre frown — corners down, slightly lopsided
+                px(8, 13, MouthDark); px(9, 12, MouthDark)
+                px(10, 12, MouthDark); px(11, 13, MouthDark)
+            }
+            OttoMood.CRAWLING -> {
+                // Determined little smile
+                px(8, 12, MouthDark); px(11, 12, MouthDark)
+                px(9, 13, MouthDark); px(10, 13, MouthDark)
+            }
             OttoMood.IDLE -> {
                 // Subtle smile — corners up
                 px(8, 12, MouthDark); px(11, 12, MouthDark)
@@ -431,6 +465,17 @@ private fun drawCap(
     px(9, 2, Color(0xFFAA8822))
     // Tassel
     px(17, 1, Tassel); px(17, 2, Tassel); px(18, 3, Tassel)
+}
+
+private fun drawQuestionMark(px: (Int, Int, Color) -> Unit) {
+    // A "?" floating off Otto's top-right, in the attention-grabbing cap gold.
+    // Sits in cols 16-19 / rows 0-5 — clear of the head silhouette.
+    val c = CapBand
+    px(16, 0, c); px(17, 0, c); px(18, 0, c)  // top arc
+    px(19, 1, c)                              // right shoulder
+    px(18, 2, c)                              // curving back in
+    px(17, 3, c)                              // stem
+    px(17, 5, c)                              // dot (gap at row 4)
 }
 
 private fun drawSleepingZs(
@@ -613,6 +658,27 @@ private fun drawTentacles(
                 } else {
                     for (y in 14..17) cols.forEach { x -> px(x, y, skin.shade) }
                 }
+            }
+        }
+        OttoMood.CONFUSED -> {
+            // Most tentacles hang; the right-most curls up to scratch the head.
+            TENTACLE_COLS.forEachIndexed { idx, cols ->
+                if (idx == 5) {
+                    cols.forEach { x -> px(x, 14, skin.shade) }
+                    px(16, 13, skin.shade); px(15, 12, skin.shade)
+                    px(14, 11, skin.shade)   // tip touching the side of the head
+                } else {
+                    for (y in 14..17) cols.forEach { x -> px(x, y, skin.shade) }
+                }
+            }
+        }
+        OttoMood.CRAWLING -> {
+            // Walk gait: alternate tentacles step "forward" (down to 17) vs "lifted"
+            // (only to 15). frame flips which set steps, producing a marching shuffle.
+            TENTACLE_COLS.forEachIndexed { idx, cols ->
+                val steppingNow = (idx % 2 == 0) == (frame == 0)
+                val tipRow = if (steppingNow) 17 else 15
+                for (y in 14..tipRow) cols.forEach { x -> px(x, y, skin.shade) }
             }
         }
     }

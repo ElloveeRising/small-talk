@@ -4,8 +4,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -14,6 +16,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,9 +29,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -53,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +68,7 @@ import kotlinx.coroutines.delay
 import kotlin.random.Random
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -286,6 +293,23 @@ private fun OttoStrip(
     var yawnUntilSecond by remember { mutableIntStateOf(-1) }
     var waveUntilSecond by remember { mutableIntStateOf(3) }   // wave the first 3 seconds
     var winkUntilSecond by remember { mutableIntStateOf(-1) }  // long-press easter egg
+    var confusedUntilSecond by remember { mutableIntStateOf(-1) } // shown on errors
+
+    // Stroll: Otto occasionally walks across the strip so he isn't stuck on one side.
+    // `strollX` is 0 (home, far left) → 1 (far right); animated smoothly. `strolling`
+    // gates the CRAWLING mood + the status text + fading the labels.
+    var strolling by remember { mutableStateOf(false) }
+    var strollTarget by remember { mutableFloatStateOf(0f) }
+    val strollX by animateFloatAsState(
+        targetValue = strollTarget,
+        animationSpec = tween(2000, easing = FastOutSlowInEasing),
+        label = "strollX",
+    )
+    val labelAlpha by animateFloatAsState(
+        targetValue = if (strolling) 0f else 1f,
+        animationSpec = tween(350),
+        label = "labelAlpha",
+    )
 
     LaunchedEffect(pipelineMood) {
         if (pipelineMood != null) {
@@ -295,6 +319,10 @@ private fun OttoStrip(
     }
     LaunchedEffect(state.messages.size) { idleSeconds = 0 }
     LaunchedEffect(inputText) { if (inputText.isNotEmpty()) idleSeconds = 0 }
+    // Error → Otto looks confused for a few seconds
+    LaunchedEffect(state.errorMessage) {
+        if (state.errorMessage != null) confusedUntilSecond = idleSeconds + 3
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -304,34 +332,50 @@ private fun OttoStrip(
     }
     LaunchedEffect(Unit) {
         while (true) {
-            val gap = Random.nextLong(40_000, 75_000)
-            delay(gap)
+            delay(Random.nextLong(40_000, 75_000))
             if (pipelineMood == null && inputText.isEmpty() && idleSeconds in 8..115) {
                 yawnUntilSecond = idleSeconds + 2
             }
         }
     }
+    // Stroll scheduler — every ~30-55s of calm idleness, take a walk across and back.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(Random.nextLong(30_000, 55_000))
+            val calm = pipelineMood == null && inputText.isEmpty() &&
+                idleSeconds in 10..110 && state.errorMessage == null
+            if (calm && !strolling) {
+                strolling = true
+                strollTarget = 1f      // walk to the right
+                delay(2200)
+                strollTarget = 0f      // walk back home
+                delay(2200)
+                strolling = false
+            }
+        }
+    }
 
-    // Computed mood — priority order:
-    //   1. Wink (long-press easter egg, brief)
-    //   2. What the pipeline is doing (typing / thinking / searching)
-    //   3. What the user is doing (reading their typed input)
-    //   4. Idle-state behaviours (wave / sleep / yawn / thinking-on / plain idle)
+    val reaction = if (!strolling && inputText.isNotEmpty()) reactionFor(inputText) else OttoReaction.NORMAL
+
+    // Computed mood — priority order: confused > wink > stroll > pipeline > reading > idle.
     val idleMood = when {
         idleSeconds < waveUntilSecond -> OttoMood.WAVING
         idleSeconds > 120 -> OttoMood.SLEEPING
         idleSeconds < yawnUntilSecond -> OttoMood.YAWN
-        state.thinking -> OttoMood.THINKING
         else -> OttoMood.IDLE
     }
     val mood = when {
+        idleSeconds < confusedUntilSecond -> OttoMood.CONFUSED
         idleSeconds < winkUntilSecond -> OttoMood.WINKING
+        strolling -> OttoMood.CRAWLING
         pipelineMood != null -> pipelineMood
         inputText.isNotEmpty() -> OttoMood.READING
         else -> idleMood
     }
 
-    val reaction = if (mood == OttoMood.READING) reactionFor(inputText) else OttoReaction.NORMAL
+    // The cap = "thinking mode is on", shown in every mood except confusion (so the
+    // "?" reads cleanly). This is what keeps the cap on while Otto reads your input.
+    val wearingCap = state.thinking && mood != OttoMood.CONFUSED
 
     val statusText = when (mood) {
         OttoMood.TYPING -> "Otto's typing…"
@@ -350,15 +394,16 @@ private fun OttoStrip(
             OttoReaction.NORMAL -> "Otto's reading…"
         }
         OttoMood.WINKING -> "😉"
-        OttoMood.IDLE -> "Otto's listening"
+        OttoMood.CONFUSED -> "Otto's stumped…"
+        OttoMood.CRAWLING -> "Otto's stretching his legs…"
+        OttoMood.IDLE ->
+            if (state.thinking) "Thinking mode on" else "Otto's listening"
     }
 
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .combinedClickable(
                 onClick = {
-                    // First tap when Otto is sleeping = just wake him up, don't toggle thinking.
-                    // Subsequent taps (already awake) toggle thinking mode like before.
                     val wasAsleep = idleSeconds > 120
                     idleSeconds = 0
                     yawnUntilSecond = -1
@@ -366,47 +411,60 @@ private fun OttoStrip(
                     if (!wasAsleep) onToggleThinking()
                 },
                 onLongClick = {
-                    // Easter egg: long-press Otto and he winks at you. Doesn't touch
-                    // thinking mode. Resets the idle clock so he doesn't sleep mid-wink.
                     idleSeconds = 0
                     winkUntilSecond = 2   // ~2 seconds of winking
                 },
             )
             .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        // No explicit size — Otto sizes himself via his `pixel` arg (default 3 dp/px =
-        // 60 × 63 dp). Forcing 48 × 50 here was squashing every pixel below the
-        // intended scale and making subtle facial details (eye-shift, reactions)
-        // disappear on phone screens.
-        Otto(mood = mood, skin = skin, reaction = reaction)
-        Spacer(Modifier.size(width = 12.dp, height = 0.dp))
-        Column {
-            Text(
-                "Otto",
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+        val ottoWidth = 60.dp   // Otto's natural footprint at 3 dp/px
+        val maxTravel = (maxWidth - ottoWidth).coerceAtLeast(0.dp)
+
+        // Labels (name + status on the left, model chip on the right). Fades out while
+        // Otto strolls over them, fades back when he returns home.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.CenterStart)
+                .alpha(labelAlpha),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width(ottoWidth + 12.dp))   // reserve Otto's home spot
+            Column {
+                Text("Otto", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(statusText, color = MutedText, fontSize = 11.sp)
+            }
+            Spacer(Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(skin.body),
             )
+            Spacer(Modifier.width(6.dp))
+            Text(state.activeVariant.label, color = MutedText, fontSize = 11.sp)
+        }
+
+        // Otto himself, offset horizontally during a stroll.
+        Otto(
+            mood = mood,
+            skin = skin,
+            reaction = reaction,
+            wearingCap = wearingCap,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = maxTravel * strollX),
+        )
+
+        // While strolling, show his status centered so the user can still read it.
+        if (strolling) {
             Text(
                 statusText,
                 color = MutedText,
                 fontSize = 11.sp,
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-        Spacer(Modifier.weight(1f))
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(skin.body),
-        )
-        Spacer(Modifier.size(width = 6.dp, height = 0.dp))
-        Text(
-            state.activeVariant.label,
-            color = MutedText,
-            fontSize = 11.sp,
-        )
     }
 }
 
