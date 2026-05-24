@@ -64,7 +64,6 @@ fun SetupScreen(onReady: () -> Unit) {
     var permissionAttempted by remember { mutableStateOf(false) }
 
     val expectedFile = remember { File(ModelDownloader.ensureModelsDir(), E2B_FILENAME) }
-    var modelReady by remember { mutableStateOf(expectedFile.exists() && expectedFile.length() > 0) }
     val manualOk = ModelFiles.isReadable(manualPath)
 
     val allFilesLauncher = rememberLauncherForActivityResult(
@@ -99,18 +98,31 @@ fun SetupScreen(onReady: () -> Unit) {
         }
     }
 
-    // When the download (running on appScope) reports Done, reflect it in the UI: persist
-    // the path and flip modelReady so the "Wake Otto up" button unlocks.
-    LaunchedEffect(downloadState) {
-        val s = downloadState
-        if (s is ModelDownloader.State.Done) {
-            ModelFiles.setResponderPath(context, s.absolutePath)
-            modelReady = true
+    val isDownloading = downloadState is ModelDownloader.State.Downloading
+    val downloadDone = downloadState is ModelDownloader.State.Done
+
+    // Resolve a usable model path, re-checking whenever permission is granted, a download
+    // finishes, or a manual path is entered. Re-checking on `hasAllFiles` matters: a model
+    // file already sitting in shared storage only becomes visible to File.exists() AFTER
+    // all-files access is granted (Android scoped storage).
+    val resolvedModelPath: String? = remember(hasAllFiles, downloadDone, manualPath) {
+        when {
+            ModelFiles.isReadable(manualPath) -> manualPath
+            expectedFile.exists() && expectedFile.length() > 0 -> expectedFile.absolutePath
+            else -> null
         }
     }
+    val modelReady = resolvedModelPath != null
 
-    val isDownloading = downloadState is ModelDownloader.State.Downloading
-    val canStart = hasAllFiles && (modelReady || manualOk)
+    // Persist the resolved path so ChatViewModel.startModelLoading() can find it. THIS is the
+    // fix for "both steps green but Wake Otto up won't proceed": when the brain file already
+    // existed (rather than being downloaded this session) its location was never written to
+    // prefs, so model loading bounced straight back to the setup screen.
+    LaunchedEffect(resolvedModelPath) {
+        if (resolvedModelPath != null) ModelFiles.setResponderPath(context, resolvedModelPath)
+    }
+
+    val canStart = hasAllFiles && modelReady
 
     Column(
         modifier = Modifier
@@ -303,7 +315,12 @@ fun SetupScreen(onReady: () -> Unit) {
 
         Spacer(Modifier.height(4.dp))
         Button(
-            onClick = onReady,
+            onClick = {
+                // Belt-and-suspenders: make sure the path is saved before we hand off to
+                // model loading, so it can never bounce back for a missing pref.
+                resolvedModelPath?.let { ModelFiles.setResponderPath(context, it) }
+                onReady()
+            },
             enabled = canStart,
             modifier = Modifier.fillMaxWidth().height(52.dp),
             colors = ButtonDefaults.buttonColors(
