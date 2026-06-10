@@ -45,6 +45,9 @@ enum class OttoMood {
     WINKING,    // long-press easter egg
     CONFUSED,   // shown briefly when something goes wrong
     CRAWLING,   // walk cycle, used while Otto strolls across the strip
+    JETTING,    // squeezed-body burst — octopus jet propulsion (recalls + ink moments)
+    DANCING,    // rare idle act: a tiny groove with floating notes
+    PAINTING,   // rare idle act: easel, brush, dabs of paint
 }
 
 /**
@@ -92,6 +95,11 @@ private val Tassel = Color(0xFFFFD24F)
 private val KbA = Color(0xFF334455)
 private val KbB = Color(0xFF223344)
 private val KbPress = Color(0xFF77AADD)
+private val ScreenBg = Color(0xFF0E1D33)
+private val ScreenText = Color(0xFF7FD9A8)
+private val JetBubble = Color(0xFFB8D4E8)
+private val NightcapBlue = Color(0xFF4a4a78)
+private val CanvasWhite = Color(0xFFEDEAF5)
 
 private val Cheek = Color(0xFFFF99CC)
 private val ZColor = Color(0xFFCCCCEE)
@@ -147,6 +155,9 @@ fun Otto(
                     OttoMood.WINKING -> 1200
                     OttoMood.CONFUSED -> 700
                     OttoMood.CRAWLING -> 360  // brisk walk cycle
+                    OttoMood.JETTING -> 240   // rapid squeeze pulses while jetting
+                    OttoMood.DANCING -> 520
+                    OttoMood.PAINTING -> 1700 // slow, contemplative brushwork
                 },
                 easing = LinearEasing,
             ),
@@ -188,7 +199,7 @@ fun Otto(
     )
 
     val frame = when (mood) {
-        OttoMood.IDLE -> if (phase < 0.5f) 0 else 1
+        OttoMood.IDLE -> ((phase * 4f).toInt()).coerceIn(0, 3)    // 4-pose tentacle curl ripple
         OttoMood.TYPING -> ((phase * 6f).toInt()).coerceIn(0, 5)  // 6-frame drumming pattern
         OttoMood.THINKING -> ((phase * 4f).toInt()).coerceIn(0, 3)
         OttoMood.SEARCHING -> ((phase * 4f).toInt()).coerceIn(0, 3)
@@ -200,6 +211,9 @@ fun Otto(
         OttoMood.WINKING -> if (phase < 0.85f) 0 else 1  // wink held most of cycle, brief snap-back
         OttoMood.CONFUSED -> ((phase * 2f).toInt()).coerceIn(0, 1)
         OttoMood.CRAWLING -> if (phase < 0.5f) 0 else 1   // two-step walk gait
+        OttoMood.JETTING -> if (phase < 0.5f) 0 else 1
+        OttoMood.DANCING -> if (phase < 0.5f) 0 else 1
+        OttoMood.PAINTING -> ((phase * 4f).toInt()).coerceIn(0, 3)
     }
     val blinking = blinkPhase > 0.94f
 
@@ -221,6 +235,13 @@ fun Otto(
             drawRect(color = c, topLeft = Offset(x * p, (y + bobOffset) * p), size = Size(p, p))
         fun row(xs: IntRange, y: Int, c: Color) = xs.forEach { px(it, y, c) }
 
+        // JETTING is a whole-body transformation (squeezed mantle, arms streaming behind),
+        // so it draws its own everything and skips the normal head/face path.
+        if (mood == OttoMood.JETTING) {
+            drawJetting(::px, ::row, skin, frame)
+            return@Canvas
+        }
+
         // ── Accessory rows 0-3 ────────────────────────────────────────────────
         // Priority: an action that needs the top rows (searching = magnifier,
         // sleeping = Zs) wins; otherwise the thinking cap shows whenever thinking
@@ -228,8 +249,13 @@ fun Otto(
         // longer pops off the moment you start typing.
         when {
             mood == OttoMood.SEARCHING -> drawMagnifyingGlass(::px, ::row, skin, frame)
-            mood == OttoMood.SLEEPING -> drawSleepingZs(::px, frame)
+            mood == OttoMood.SLEEPING -> {
+                drawSleepingZs(::px, frame)
+                // After dark he sleeps in a proper nightcap (cap left, Zs float right).
+                if (isNightHour()) drawNightcap(::px, ::row)
+            }
             mood == OttoMood.CONFUSED -> drawQuestionMark(::px)
+            mood == OttoMood.DANCING -> drawMusicNotes(::px, frame)
             wearingCap -> drawCap(::px, ::row)
             else -> {}
         }
@@ -345,6 +371,9 @@ fun Otto(
                     OttoMood.THINKING -> 5 to 15
                     OttoMood.SEARCHING -> 5 to 15      // looking up-right toward glass
                     OttoMood.EXCITED, OttoMood.WAVING -> 4 to 14
+                    OttoMood.TYPING -> 3 to 13         // eyes on his little terminal screen
+                    OttoMood.PAINTING -> 3 to 13       // eyes on the canvas
+                    OttoMood.DANCING -> if (frame == 0) 3 to 13 else 5 to 15
                     OttoMood.IDLE -> {
                         when ((roamPhase * 5f).toInt().coerceIn(0, 4)) {
                             0 -> 3 to 13   // glance left
@@ -428,18 +457,41 @@ fun Otto(
                 px(8, 12, MouthDark); px(11, 12, MouthDark)
                 px(9, 13, MouthDark); px(10, 13, MouthDark)
             }
+            OttoMood.DANCING -> {
+                // Full grin — he's having a moment
+                px(7, 12, MouthDark); px(12, 12, MouthDark)
+                row(8..11, 13, MouthDark)
+            }
+            OttoMood.PAINTING -> {
+                // Pursed artist's concentration
+                row(8..11, 12, MouthDark)
+            }
+            OttoMood.JETTING -> { /* unreachable — JETTING draws its own body */ }
         }
 
         // ── Tentacles (rows 14-17, sometimes higher) ─────────────────────────
         drawTentacles(::px, mood, skin, frame, phase)
 
-        // ── Keyboard (TYPING only) ───────────────────────────────────────────
+        // ── Battlestation (TYPING only): terminal on the left, keys below ───
         if (mood == OttoMood.TYPING) {
-            (0..19).forEach { x -> px(x, 18, if (x % 2 == 0) KbA else KbB) }
-            row(0..19, 19, KbB)
-            // Light up the keys where pressed tentacles land this frame
+            // Upright terminal — drawn after the body so Otto sits "behind the desk".
+            for (y in 11..16) for (x in 0..5) px(x, y, KbB)
+            for (y in 12..15) for (x in 1..4) px(x, y, ScreenBg)
+            // Lines of text accumulate on screen as he types, then scroll away.
+            val lines = frame % 6
+            if (lines >= 1) { px(1, 12, ScreenText); px(2, 12, ScreenText) }
+            if (lines >= 2) { px(1, 13, ScreenText); px(2, 13, ScreenText); px(3, 13, ScreenText) }
+            if (lines >= 3) { px(1, 14, ScreenText) }
+            if (lines >= 4) { px(2, 14, ScreenText); px(3, 14, ScreenText) }
+            if (lines >= 5) { px(1, 15, ScreenText); px(2, 15, ScreenText) }
+            if (frame % 2 == 0) px(4, 15, ScreenText)   // blinking cursor
+            // Keyboard under his left arms only — the right arms get the night off.
+            (0..11).forEach { x -> px(x, 18, if (x % 2 == 0) KbA else KbB) }
+            row(0..11, 19, KbB)
             TENTACLE_COLS.forEachIndexed { idx, cols ->
-                if (isTentaclePressed(idx, frame)) cols.forEach { x -> px(x, 18, KbPress) }
+                if (idx <= 2 && isTentaclePressed(idx, frame)) {
+                    cols.forEach { x -> if (x <= 11) px(x, 18, KbPress) }
+                }
             }
         }
     }
@@ -476,6 +528,79 @@ private fun drawQuestionMark(px: (Int, Int, Color) -> Unit) {
     px(18, 2, c)                              // curving back in
     px(17, 3, c)                              // stem
     px(17, 5, c)                              // dot (gap at row 4)
+}
+
+/** True between 9 pm and 6 am — Otto's nightcap hours. */
+private fun isNightHour(): Boolean {
+    val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    return h >= 21 || h < 6
+}
+
+/** Floppy nightcap worn while SLEEPING at night. Sits left of the Zs (cols ≤ 12). */
+private fun drawNightcap(
+    px: (Int, Int, Color) -> Unit,
+    row: (IntRange, Int, Color) -> Unit,
+) {
+    row(5..12, 3, ZColor)          // pale folded brim on the dome
+    row(5..11, 2, NightcapBlue)    // cone
+    row(4..8, 1, NightcapBlue)     // flopping left
+    px(3, 0, NightcapBlue); px(4, 0, NightcapBlue)
+    px(2, 0, ZColor)               // pom on the tip
+}
+
+/** Floating notes for the DANCING easter egg — alternating positions per frame. */
+private fun drawMusicNotes(px: (Int, Int, Color) -> Unit, frame: Int) {
+    val c = CapBand
+    if (frame == 0) {
+        px(15, 2, c); px(15, 1, c); px(15, 0, c); px(14, 2, c)   // eighth note, right
+        px(3, 1, c); px(3, 0, c); px(2, 1, c)                    // small note, left
+    } else {
+        px(17, 1, c); px(17, 0, c); px(16, 1, c)
+        px(5, 2, c); px(5, 1, c); px(5, 0, c); px(4, 2, c)
+    }
+}
+
+/** Easel + canvas for the PAINTING easter egg. Dabs accumulate with the frame. */
+private fun drawEasel(px: (Int, Int, Color) -> Unit, frame: Int) {
+    for (y in 14..17) { px(0, y, GlassHandle); px(4, y, GlassHandle) }   // legs
+    for (x in 0..4) px(x, 8, GlassHandle)                                // top rail
+    for (y in 9..13) for (x in 0..4) px(x, y, CanvasWhite)               // canvas
+    if (frame >= 0) px(1, 12, Cheek)
+    if (frame >= 1) px(3, 10, CapBand)
+    if (frame >= 2) px(2, 11, Color(0xFF44BBCC))
+    if (frame >= 3) px(1, 10, Color(0xFF8866EE))
+}
+
+/**
+ * JETTING — full-body redraw. Otto squeezes his mantle and rockets head-first
+ * (downward) with all eight... fine, six arms streaming behind him, bubbles
+ * ripping past. The squeeze pulses with the frame like a real siphon burst.
+ */
+private fun drawJetting(
+    px: (Int, Int, Color) -> Unit,
+    row: (IntRange, Int, Color) -> Unit,
+    skin: OttoSkin,
+    frame: Int,
+) {
+    val s = if (frame == 0) 0 else 1   // 1 = tighter squeeze
+    // Trailing arm bundle (above — he's headed down)
+    row(9..10, 0, skin.shade)
+    row(9..10, 1, skin.shade)
+    row(8..11, 2, skin.shade)
+    row(8..11, 3, skin.shade)
+    // Squeezed mantle
+    row(8 + s..11 - s, 4, skin.body)
+    row(7 + s..12 - s, 5, skin.body)
+    row(6 + s..13 - s, 6, skin.body)
+    for (y in 7..11) row(5 + s..14 - s, y, skin.body)
+    row(6 + s..13 - s, 12, skin.body)
+    row(7 + s..12 - s, 13, skin.body)
+    // Determined little eyes
+    px(7, 9, EyeWhite); px(8, 9, EyePupil)
+    px(12, 9, EyeWhite); px(11, 9, EyePupil)
+    // Bubbles streaming past
+    if (frame == 0) { px(4, 2, JetBubble); px(15, 5, JetBubble); px(3, 8, JetBubble) }
+    else { px(15, 1, JetBubble); px(4, 6, JetBubble); px(16, 9, JetBubble) }
 }
 
 private fun drawSleepingZs(
@@ -538,20 +663,23 @@ private fun drawTentacles(
 ) {
     when (mood) {
         OttoMood.TYPING -> {
-            // 6-frame drumming: at any given frame, 2 of 6 tentacles are PRESSED
-            // (extended down to row 17 with splayed feet); the other 4 are LIFTED
-            // (visible only at rows 14-15, like fingers hovering for the next strike).
+            // Side-on workstation pose: the LEFT three arms drum the keys (one strike
+            // per frame, rotating); the right three rest in a relaxed curl. Pairs with
+            // the terminal drawn on the left of the canvas.
             TENTACLE_COLS.forEachIndexed { idx, cols ->
-                val pressed = isTentaclePressed(idx, frame)
-                if (pressed) {
-                    for (y in 14..17) cols.forEach { x -> px(x, y, skin.shade) }
-                    val splayLeft = cols.first - 1
-                    val splayRight = cols.last + 1
-                    if (splayLeft >= 0) px(splayLeft, 17, skin.shade)
-                    if (splayRight <= 19) px(splayRight, 17, skin.shade)
+                if (idx <= 2) {
+                    if (isTentaclePressed(idx, frame)) {
+                        for (y in 14..17) cols.forEach { x -> px(x, y, skin.shade) }
+                        val splayLeft = cols.first - 1
+                        val splayRight = cols.last + 1
+                        if (splayLeft >= 0) px(splayLeft, 17, skin.shade)
+                        if (splayRight <= 19) px(splayRight, 17, skin.shade)
+                    } else {
+                        for (y in 14..15) cols.forEach { x -> px(x, y, skin.shade) }
+                    }
                 } else {
-                    // Lifted finger — short stub at the top, hovering above the keys.
-                    for (y in 14..15) cols.forEach { x -> px(x, y, skin.shade) }
+                    for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
+                    px((cols.last + 1).coerceAtMost(19), 16, skin.shade)   // lazy off-hand curl
                 }
             }
         }
@@ -626,12 +754,32 @@ private fun drawTentacles(
             }
         }
         OttoMood.IDLE -> {
-            // Full-length tentacles, gentle tip wiggle (offset per index)
+            // Curl ripple: each arm drifts through straight → tip-slide → hook-curl →
+            // gather, staggered by index so the row of arms undulates instead of
+            // stamping. Outer arms hook outward, like the resting pose of a real
+            // octopus (and our banner).
             TENTACLE_COLS.forEachIndexed { idx, cols ->
-                for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
-                val wiggle = if ((idx + frame) % 2 == 0) 0 else 1
-                val tipCol = (cols.first + wiggle).coerceIn(0, 19)
-                px(tipCol, 17, skin.shade)
+                val a = cols.first
+                val b = cols.last
+                val hook = if (idx >= 3) b + 1 else a - 1
+                when ((frame + idx) % 4) {
+                    0 -> {   // straight, tip resting on its left foot
+                        for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
+                        px(a, 17, skin.shade)
+                    }
+                    1 -> {   // tip slides across
+                        for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
+                        px(b, 17, skin.shade)
+                    }
+                    2 -> {   // curl: tip hooks out and lifts
+                        for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
+                        if (hook in 0..19) { px(hook, 16, skin.shade); px(hook, 15, skin.shade) }
+                    }
+                    else -> { // gather: shorter, loading the next ripple
+                        for (y in 14..15) cols.forEach { x -> px(x, y, skin.shade) }
+                        px(if (idx >= 3) b else a, 16, skin.shade)
+                    }
+                }
             }
         }
         OttoMood.READING -> {
@@ -673,14 +821,52 @@ private fun drawTentacles(
             }
         }
         OttoMood.CRAWLING -> {
-            // Walk gait: alternate tentacles step "forward" (down to 17) vs "lifted"
-            // (only to 15). frame flips which set steps, producing a marching shuffle.
+            // Rolling gait: planted arms drag a heel pixel; lifted arms curl forward
+            // gathering the next step — a crawl, not a march.
             TENTACLE_COLS.forEachIndexed { idx, cols ->
-                val steppingNow = (idx % 2 == 0) == (frame == 0)
-                val tipRow = if (steppingNow) 17 else 15
-                for (y in 14..tipRow) cols.forEach { x -> px(x, y, skin.shade) }
+                val stepping = (idx % 2 == 0) == (frame == 0)
+                val a = cols.first
+                val b = cols.last
+                if (stepping) {
+                    for (y in 14..17) cols.forEach { x -> px(x, y, skin.shade) }
+                    if (a - 1 >= 0) px(a - 1, 17, skin.shade)    // heel drag
+                } else {
+                    for (y in 14..15) cols.forEach { x -> px(x, y, skin.shade) }
+                    if (b + 1 <= 19) px(b + 1, 15, skin.shade)   // curled forward mid-air
+                }
             }
         }
+        OttoMood.DANCING -> {
+            // Alternating sides thrown up — a tiny rave. Raised tips hook outward.
+            TENTACLE_COLS.forEachIndexed { idx, cols ->
+                val up = (idx % 2 == 0) == (frame == 0)
+                if (up) {
+                    cols.forEach { x -> px(x, 14, skin.shade) }
+                    val tip = (cols.first + if (idx < 3) -1 else 2).coerceIn(0, 19)
+                    px(tip, 13, skin.shade); px(tip, 12, skin.shade)
+                } else {
+                    for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
+                }
+            }
+        }
+        OttoMood.PAINTING -> {
+            drawEasel(px, frame)
+            // Most arms rest; the second-left arm holds the brush up to the canvas,
+            // bobbing slightly with each new dab.
+            TENTACLE_COLS.forEachIndexed { idx, cols ->
+                if (idx == 1) {
+                    cols.forEach { x -> px(x, 14, skin.shade) }
+                    px(4, 13, skin.shade)
+                    val bob = if (frame % 2 == 0) 0 else 1
+                    px(3, 12 - bob, GlassHandle)
+                    px(3, 11 - bob, GlassHandle)
+                    px(3, 10 - bob, Cheek)        // brush tip, paint-loaded
+                } else {
+                    for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
+                }
+            }
+        }
+        OttoMood.JETTING -> { /* unreachable — JETTING draws its own body */ }
     }
 }
 

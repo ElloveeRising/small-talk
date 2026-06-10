@@ -4,13 +4,16 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -62,14 +65,22 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
@@ -114,7 +125,13 @@ fun ChatScreen(
         containerColor = BackgroundColor,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Column(
+        // Otto's free-roam state: when he's "away", the strip shows an empty spot and the
+        // explorer overlay (drawn after the Column below) owns him.
+        var ottoAway by remember { mutableStateOf(false) }
+        var explorerMood by remember { mutableStateOf(OttoMood.CRAWLING) }
+        var inkWipe by remember { mutableStateOf(false) }
+
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -122,6 +139,9 @@ fun ChatScreen(
                 .navigationBarsPadding()
                 .imePadding()
         ) {
+        val screenW = maxWidth
+        val screenH = maxHeight
+        Column(modifier = Modifier.fillMaxSize()) {
             // Header — title centered, Refresh on the left, Settings on the right, and a small
             // idle Otto peeking up from the bottom edge so the character is present even when
             // there's no inference happening.
@@ -133,7 +153,8 @@ fun ChatScreen(
                     fontSize = 20,
                 )
                 IconButton(
-                    onClick = onRefresh,
+                    // Otto inks the screen; the actual wipe fires at full cover (see overlay).
+                    onClick = { if (!inkWipe) inkWipe = true },
                     modifier = Modifier.align(Alignment.CenterStart),
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = "New chat", tint = IconTint)
@@ -165,6 +186,8 @@ fun ChatScreen(
                 OttoStrip(
                     state = state,
                     inputText = inputText,
+                    ottoAway = ottoAway,
+                    inking = inkWipe,
                     onToggleThinking = onToggleThinking,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                 )
@@ -258,6 +281,100 @@ fun ChatScreen(
                 }
             }
         }
+
+        // ── Otto's expeditions: every couple of minutes of calm he leaves the strip,
+        // climbs the edge of the screen, strolls across the top, peeks at the world,
+        // and wanders home. If the user starts typing (or an answer starts streaming)
+        // he squeezes into a jet, leaves a puff of ink, and rockets straight back —
+        // from wherever he happens to be. ──
+        val curInput by rememberUpdatedState(inputText)
+        val curStreaming by rememberUpdatedState(state.isStreaming)
+        val exX = remember { Animatable(12f) }
+        val exY = remember { Animatable(0f) }
+        var inkPoofAt by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+        val homeX = 12f
+        val homeY = (screenH - 150.dp).value.coerceAtLeast(0f)
+        val farX = (screenW - 72.dp).value.coerceAtLeast(0f)
+
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(Random.nextLong(95_000, 160_000))
+                if (curInput.isNotEmpty() || curStreaming || ottoAway || inkWipe) continue
+                exX.snapTo(homeX); exY.snapTo(homeY)
+                explorerMood = OttoMood.CRAWLING
+                ottoAway = true
+                var recalled = false
+                coroutineScope {
+                    val path = launch {
+                        exX.animateTo(6f, tween(1500))
+                        exY.animateTo(10f, tween(11_000, easing = LinearEasing))    // slow climb
+                        explorerMood = OttoMood.IDLE
+                        delay(1700)                                                 // take in the view
+                        explorerMood = OttoMood.CRAWLING
+                        exX.animateTo(farX, tween(12_000, easing = LinearEasing))   // cross the top
+                        explorerMood = OttoMood.READING
+                        delay(1800)                                                 // peek down at the chat
+                        explorerMood = OttoMood.CRAWLING
+                        exX.animateTo(6f, tween(12_000, easing = LinearEasing))     // wander back
+                        exY.animateTo(homeY, tween(11_000, easing = LinearEasing))  // climb down
+                    }
+                    val watcher = launch {
+                        snapshotFlow { curInput.isNotEmpty() || curStreaming }.first { it }
+                        recalled = true
+                        path.cancel()
+                    }
+                    path.join()
+                    watcher.cancel()
+                }
+                if (recalled) {
+                    inkPoofAt = exX.value to exY.value
+                    explorerMood = OttoMood.JETTING
+                    coroutineScope {
+                        joinAll(
+                            launch { exX.animateTo(homeX, tween(700, easing = FastOutSlowInEasing)) },
+                            launch { exY.animateTo(homeY, tween(700, easing = FastOutSlowInEasing)) },
+                        )
+                    }
+                    explorerMood = OttoMood.EXCITED
+                    delay(700)
+                }
+                ottoAway = false
+            }
+        }
+
+        if (ottoAway) {
+            Otto(
+                mood = explorerMood,
+                skin = skin,
+                wearingCap = state.thinking,
+                modifier = Modifier.offset(exX.value.dp, exY.value.dp),
+            )
+        }
+        inkPoofAt?.let { at -> InkPoof(at) { inkPoofAt = null } }
+
+        // ── Ink-wipe refresh: the screen floods with Otto's ink; the wipe happens at
+        // full cover, and the fresh empty chat is revealed as the ink thins away. ──
+        if (inkWipe) {
+            val cover = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                cover.animateTo(1f, tween(340, easing = FastOutSlowInEasing))
+                onRefresh()
+                delay(140)
+                cover.animateTo(0f, tween(520))
+                inkWipe = false
+            }
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val t = cover.value
+                val ink = Color(0xFF160B2E)
+                val maxR = size.maxDimension * 1.15f
+                val cx = size.width * 0.16f
+                val cy = size.height * 0.80f
+                drawCircle(ink.copy(alpha = (t * 0.98f).coerceIn(0f, 1f)), maxR * t, Offset(cx, cy))
+                drawCircle(ink.copy(alpha = (t * 0.90f).coerceIn(0f, 1f)), maxR * t * 0.78f, Offset(cx + 80f, cy - 160f))
+                drawCircle(ink.copy(alpha = (t * 0.85f).coerceIn(0f, 1f)), maxR * t * 0.60f, Offset(cx + 180f, cy + 40f))
+            }
+        }
+        }
     }
 }
 
@@ -274,6 +391,8 @@ fun ChatScreen(
 private fun OttoStrip(
     state: ChatUiState,
     inputText: String,
+    ottoAway: Boolean,
+    inking: Boolean,
     onToggleThinking: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -310,6 +429,17 @@ private fun OttoStrip(
         animationSpec = tween(350),
         label = "labelAlpha",
     )
+
+    // Rare acts: every ~8-12 calm minutes Otto does something nobody asked for —
+    // a little dance, a painting session, or blowing a bubble. The fish swims on
+    // its own, rarer schedule.
+    val curPipeline by rememberUpdatedState(pipelineMood)
+    val curInputText by rememberUpdatedState(inputText)
+    var actMood by remember { mutableStateOf<OttoMood?>(null) }
+    var bubbleActive by remember { mutableStateOf(false) }
+    val bubbleT = remember { Animatable(0f) }
+    var fishActive by remember { mutableStateOf(false) }
+    val fishT = remember { Animatable(0f) }
 
     LaunchedEffect(pipelineMood) {
         if (pipelineMood != null) {
@@ -354,6 +484,37 @@ private fun OttoStrip(
             }
         }
     }
+    // Rare-act scheduler (~every 10 minutes of use).
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(Random.nextLong(480_000, 720_000))
+            val calm = curPipeline == null && curInputText.isEmpty() &&
+                idleSeconds in 5..115 && !strolling && actMood == null
+            if (!calm) continue
+            when (Random.nextInt(3)) {
+                0 -> { actMood = OttoMood.DANCING; delay(4_500); actMood = null }
+                1 -> { actMood = OttoMood.PAINTING; delay(6_800); actMood = null }
+                else -> {
+                    bubbleActive = true
+                    bubbleT.snapTo(0f)
+                    bubbleT.animateTo(1f, tween(2_600, easing = LinearEasing))
+                    bubbleActive = false
+                }
+            }
+        }
+    }
+    // A tiny fish, once in a while. Otto doesn't comment on it. Neither do we.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(Random.nextLong(360_000, 600_000))
+            if (curPipeline == null && curInputText.isEmpty() && !fishActive) {
+                fishActive = true
+                fishT.snapTo(0f)
+                fishT.animateTo(1f, tween(6_500, easing = LinearEasing))
+                fishActive = false
+            }
+        }
+    }
 
     val reaction = if (!strolling && inputText.isNotEmpty()) reactionFor(inputText) else OttoReaction.NORMAL
 
@@ -365,8 +526,10 @@ private fun OttoStrip(
         else -> OttoMood.IDLE
     }
     val mood = when {
+        inking -> OttoMood.JETTING            // squeeze! that ink came from somewhere
         idleSeconds < confusedUntilSecond -> OttoMood.CONFUSED
         idleSeconds < winkUntilSecond -> OttoMood.WINKING
+        actMood != null -> actMood!!
         strolling -> OttoMood.CRAWLING
         pipelineMood != null -> pipelineMood
         inputText.isNotEmpty() -> OttoMood.READING
@@ -396,9 +559,13 @@ private fun OttoStrip(
         OttoMood.WINKING -> "😉"
         OttoMood.CONFUSED -> "Otto's stumped…"
         OttoMood.CRAWLING -> "Otto's stretching his legs…"
+        OttoMood.JETTING -> "💨"
+        OttoMood.DANCING -> "Otto's vibing ♪"
+        OttoMood.PAINTING -> "Otto's painting…"
         OttoMood.IDLE ->
             if (state.thinking) "Thinking mode on" else "Otto's listening"
     }
+    val shownStatus = if (ottoAway) "Otto's off exploring the screen… 🐙" else statusText
 
     BoxWithConstraints(
         modifier = modifier
@@ -432,7 +599,7 @@ private fun OttoStrip(
             Spacer(Modifier.width(ottoWidth + 12.dp))   // reserve Otto's home spot
             Column {
                 Text("Otto", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(statusText, color = MutedText, fontSize = 11.sp)
+                Text(shownStatus, color = MutedText, fontSize = 11.sp)
             }
             Spacer(Modifier.weight(1f))
             Box(
@@ -445,26 +612,110 @@ private fun OttoStrip(
             Text(state.activeVariant.label, color = MutedText, fontSize = 11.sp)
         }
 
-        // Otto himself, offset horizontally during a stroll.
-        Otto(
-            mood = mood,
-            skin = skin,
-            reaction = reaction,
-            wearingCap = wearingCap,
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .offset(x = maxTravel * strollX),
-        )
+        // Otto himself, offset horizontally during a stroll — unless he's off on an
+        // expedition, in which case the explorer overlay owns him and his spot sits
+        // conspicuously empty.
+        if (!ottoAway) {
+            Otto(
+                mood = mood,
+                skin = skin,
+                reaction = reaction,
+                wearingCap = wearingCap,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = maxTravel * strollX),
+            )
+        }
+
+        // A bubble he blew, drifting up and away.
+        if (bubbleActive) {
+            val t = bubbleT.value
+            Canvas(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = 34.dp + 10.dp * t, y = (-6).dp - 30.dp * t)
+                    .size(10.dp),
+            ) {
+                drawCircle(
+                    Color.White.copy(alpha = (0.45f * (1f - t * 0.6f)).coerceIn(0f, 1f)),
+                    3.dp.toPx() + 1.5.dp.toPx() * t,
+                    center,
+                )
+            }
+        }
+        // The fish. It has places to be.
+        if (fishActive) {
+            PixelFish(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = (maxWidth - 20.dp) * fishT.value, y = (-4).dp),
+            )
+        }
 
         // While strolling, show his status centered so the user can still read it.
         if (strolling) {
             Text(
-                statusText,
+                shownStatus,
                 color = MutedText,
                 fontSize = 11.sp,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+    }
+}
+
+/**
+ * Expanding, fading puff of ink with a couple of escaping bubbles — dropped at the
+ * spot Otto jets away from.
+ */
+@Composable
+private fun InkPoof(at: Pair<Float, Float>, onDone: () -> Unit) {
+    val t = remember { Animatable(0f) }
+    LaunchedEffect(at) { t.animateTo(1f, tween(750)); onDone() }
+    Canvas(
+        modifier = Modifier
+            .offset(at.first.dp, at.second.dp)
+            .size(64.dp),
+    ) {
+        val v = t.value
+        val alpha = ((1f - v) * 0.6f).coerceIn(0f, 1f)
+        val ink = Color(0xFF221140)
+        drawCircle(ink.copy(alpha = alpha), 12.dp.toPx() + 26.dp.toPx() * v, center)
+        drawCircle(
+            ink.copy(alpha = alpha * 0.8f), 8.dp.toPx() + 20.dp.toPx() * v,
+            center + Offset(16.dp.toPx() * v, -10.dp.toPx() * v),
+        )
+        drawCircle(
+            ink.copy(alpha = alpha * 0.7f), 6.dp.toPx() + 15.dp.toPx() * v,
+            center + Offset(-13.dp.toPx() * v, 9.dp.toPx() * v),
+        )
+        drawCircle(
+            Color.White.copy(alpha = alpha * 0.5f), 2.dp.toPx(),
+            center + Offset(0f, -30.dp.toPx() * v),
+        )
+        drawCircle(
+            Color.White.copy(alpha = alpha * 0.35f), 1.5.dp.toPx(),
+            center + Offset(9.dp.toPx(), -22.dp.toPx() * v),
+        )
+    }
+}
+
+/** A six-by-five-pixel fish. Swims left to right. Knows nothing about language models. */
+@Composable
+private fun PixelFish(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(16.dp, 10.dp)) {
+        val p = 2.dp.toPx()
+        fun fx(x: Int, y: Int, c: Color) =
+            drawRect(c, topLeft = Offset(x * p, y * p), size = Size(p, p))
+        val body = Color(0xFF6FB7D9)
+        val dark = Color(0xFF2A5A75)
+        fx(0, 0, body); fx(0, 4, body)            // tail tips
+        fx(1, 1, body); fx(1, 2, body); fx(1, 3, body)
+        for (x in 2..5) fx(x, 1, body)
+        for (x in 2..6) fx(x, 2, body)
+        for (x in 2..5) fx(x, 3, body)
+        fx(5, 1, dark)                            // eye
+        fx(7, 2, body)                            // pouty little mouth
     }
 }
 
