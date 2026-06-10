@@ -130,6 +130,7 @@ fun ChatScreen(
         var ottoAway by remember { mutableStateOf(false) }
         var explorerMood by remember { mutableStateOf(OttoMood.CRAWLING) }
         var inkWipe by remember { mutableStateOf(false) }
+        var expeditionDemoTick by remember { mutableStateOf(0) }
 
         BoxWithConstraints(
             modifier = Modifier
@@ -189,6 +190,7 @@ fun ChatScreen(
                     ottoAway = ottoAway,
                     inking = inkWipe,
                     onToggleThinking = onToggleThinking,
+                    onRequestExpedition = { expeditionDemoTick++ },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                 )
             }
@@ -296,10 +298,7 @@ fun ChatScreen(
         val homeY = (screenH - 150.dp).value.coerceAtLeast(0f)
         val farX = (screenW - 72.dp).value.coerceAtLeast(0f)
 
-        LaunchedEffect(Unit) {
-            while (true) {
-                delay(Random.nextLong(95_000, 160_000))
-                if (curInput.isNotEmpty() || curStreaming || ottoAway || inkWipe) continue
+        suspend fun runExpedition() {
                 exX.snapTo(homeX); exY.snapTo(homeY)
                 explorerMood = OttoMood.CRAWLING
                 ottoAway = true
@@ -339,7 +338,18 @@ fun ChatScreen(
                     delay(700)
                 }
                 ottoAway = false
+        }
+
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(Random.nextLong(95_000, 160_000))
+                if (curInput.isNotEmpty() || curStreaming || ottoAway || inkWipe) continue
+                runExpedition()
             }
+        }
+        // Quadruple-tap demo: expedition on demand, wherever the cycle lands on it.
+        LaunchedEffect(expeditionDemoTick) {
+            if (expeditionDemoTick > 0 && !ottoAway && !inkWipe) runExpedition()
         }
 
         if (ottoAway) {
@@ -394,6 +404,7 @@ private fun OttoStrip(
     ottoAway: Boolean,
     inking: Boolean,
     onToggleThinking: () -> Unit,
+    onRequestExpedition: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val skin = OttoSkin.forVariant(state.activeVariant)
@@ -440,6 +451,8 @@ private fun OttoStrip(
     val bubbleT = remember { Animatable(0f) }
     var fishActive by remember { mutableStateOf(false) }
     val fishT = remember { Animatable(0f) }
+    var recentTaps by remember { mutableStateOf(listOf<Long>()) }
+    var demoRequest by remember { mutableStateOf(0) }
 
     LaunchedEffect(pipelineMood) {
         if (pipelineMood != null) {
@@ -515,6 +528,35 @@ private fun OttoStrip(
             }
         }
     }
+    // Quadruple-tap demo executor: cycles dance → paint → bubble → fish → expedition,
+    // so nobody has to wait ten minutes to film a dance. try/finally keeps a cancelled
+    // act (another quad-tap mid-dance) from leaving Otto stuck in a pose.
+    LaunchedEffect(demoRequest) {
+        if (demoRequest == 0) return@LaunchedEffect
+        when ((demoRequest - 1) % 5) {
+            0 -> if (actMood == null) {
+                try { actMood = OttoMood.DANCING; delay(4_500) } finally { actMood = null }
+            }
+            1 -> if (actMood == null) {
+                try { actMood = OttoMood.PAINTING; delay(6_800) } finally { actMood = null }
+            }
+            2 -> if (!bubbleActive) {
+                try {
+                    bubbleActive = true
+                    bubbleT.snapTo(0f)
+                    bubbleT.animateTo(1f, tween(2_600, easing = LinearEasing))
+                } finally { bubbleActive = false }
+            }
+            3 -> if (!fishActive) {
+                try {
+                    fishActive = true
+                    fishT.snapTo(0f)
+                    fishT.animateTo(1f, tween(6_500, easing = LinearEasing))
+                } finally { fishActive = false }
+            }
+            else -> onRequestExpedition()
+        }
+    }
 
     val reaction = if (!strolling && inputText.isNotEmpty()) reactionFor(inputText) else OttoReaction.NORMAL
 
@@ -576,6 +618,14 @@ private fun OttoStrip(
                     yawnUntilSecond = -1
                     waveUntilSecond = -1
                     if (!wasAsleep) onToggleThinking()
+                    // Quadruple-tap within 1.6 s: demo a rare act on demand. Four taps
+                    // also flip thinking four times — a net no-op, nothing disturbed.
+                    val now = System.currentTimeMillis()
+                    recentTaps = (recentTaps + now).filter { now - it < 1600 }
+                    if (recentTaps.size >= 4) {
+                        recentTaps = emptyList()
+                        demoRequest++
+                    }
                 },
                 onLongClick = {
                     idleSeconds = 0
