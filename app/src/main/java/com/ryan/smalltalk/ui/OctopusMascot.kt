@@ -48,6 +48,7 @@ enum class OttoMood {
     JETTING,    // squeezed-body burst — octopus jet propulsion (recalls + ink moments)
     DANCING,    // rare idle act: a tiny groove with floating notes
     PAINTING,   // rare idle act: easel, brush, dabs of paint
+    FLOATING,   // parachute drift — arms fanned wide, used on descents while exploring
 }
 
 /**
@@ -158,6 +159,7 @@ fun Otto(
                     OttoMood.JETTING -> 240   // rapid squeeze pulses while jetting
                     OttoMood.DANCING -> 520
                     OttoMood.PAINTING -> 1700 // slow, contemplative brushwork
+                    OttoMood.FLOATING -> 1100 // lazy spread-and-contract drift
                 },
                 easing = LinearEasing,
             ),
@@ -214,6 +216,7 @@ fun Otto(
         OttoMood.JETTING -> if (phase < 0.5f) 0 else 1
         OttoMood.DANCING -> if (phase < 0.5f) 0 else 1
         OttoMood.PAINTING -> ((phase * 4f).toInt()).coerceIn(0, 3)
+        OttoMood.FLOATING -> if (phase < 0.5f) 0 else 1
     }
     val blinking = blinkPhase > 0.94f
 
@@ -466,25 +469,30 @@ fun Otto(
                 // Pursed artist's concentration
                 row(8..11, 12, MouthDark)
             }
+            OttoMood.FLOATING -> {
+                // Serene little smile — he's enjoying the ride down
+                px(8, 12, MouthDark); px(11, 12, MouthDark)
+                px(9, 13, MouthDark); px(10, 13, MouthDark)
+            }
             OttoMood.JETTING -> { /* unreachable — JETTING draws its own body */ }
         }
 
         // ── Tentacles (rows 14-17, sometimes higher) ─────────────────────────
         drawTentacles(::px, mood, skin, frame, phase)
 
-        // ── Battlestation (TYPING only): terminal on the left, keys below ───
+        // ── Battlestation (TYPING only): floating screen top-left, keys below ───
+        // The screen is fully DETACHED from the keyboard (Ryan's note: the old desk
+        // monitor covered Otto). It hovers in the empty accessory zone so all of Otto
+        // stays visible: he reads the floating display while his left arms type.
         if (mood == OttoMood.TYPING) {
-            // Upright terminal — drawn after the body so Otto sits "behind the desk".
-            for (y in 11..16) for (x in 0..5) px(x, y, KbB)
-            for (y in 12..15) for (x in 1..4) px(x, y, ScreenBg)
-            // Lines of text accumulate on screen as he types, then scroll away.
+            for (y in 1..6) for (x in 0..4) px(x, y, KbB)
+            for (y in 2..5) for (x in 1..3) px(x, y, ScreenBg)
             val lines = frame % 6
-            if (lines >= 1) { px(1, 12, ScreenText); px(2, 12, ScreenText) }
-            if (lines >= 2) { px(1, 13, ScreenText); px(2, 13, ScreenText); px(3, 13, ScreenText) }
-            if (lines >= 3) { px(1, 14, ScreenText) }
-            if (lines >= 4) { px(2, 14, ScreenText); px(3, 14, ScreenText) }
-            if (lines >= 5) { px(1, 15, ScreenText); px(2, 15, ScreenText) }
-            if (frame % 2 == 0) px(4, 15, ScreenText)   // blinking cursor
+            if (lines >= 1) { px(1, 2, ScreenText); px(2, 2, ScreenText) }
+            if (lines >= 2) { px(1, 3, ScreenText); px(2, 3, ScreenText); px(3, 3, ScreenText) }
+            if (lines >= 3) { px(1, 4, ScreenText) }
+            if (lines >= 4) { px(2, 4, ScreenText); px(3, 4, ScreenText) }
+            if (frame % 2 == 0) px(3, 5, ScreenText)   // blinking cursor
             // Keyboard under his left arms only — the right arms get the night off.
             (0..11).forEach { x -> px(x, 18, if (x % 2 == 0) KbA else KbB) }
             row(0..11, 19, KbB)
@@ -560,15 +568,19 @@ private fun drawMusicNotes(px: (Int, Int, Color) -> Unit, frame: Int) {
     }
 }
 
-/** Easel + canvas for the PAINTING easter egg. Dabs accumulate with the frame. */
+/**
+ * Easel + canvas for the PAINTING easter egg. Sits LOW (canvas rows 10-13) so it
+ * never covers Otto's eyes — he reaches over to it, tentacle-style. Dabs accumulate
+ * with the frame.
+ */
 private fun drawEasel(px: (Int, Int, Color) -> Unit, frame: Int) {
-    for (y in 14..17) { px(0, y, GlassHandle); px(4, y, GlassHandle) }   // legs
-    for (x in 0..4) px(x, 8, GlassHandle)                                // top rail
-    for (y in 9..13) for (x in 0..4) px(x, y, CanvasWhite)               // canvas
+    for (y in 14..17) { px(0, y, GlassHandle); px(3, y, GlassHandle) }   // legs
+    for (x in 0..3) px(x, 9, GlassHandle)                                // top rail
+    for (y in 10..13) for (x in 0..3) px(x, y, CanvasWhite)              // canvas
     if (frame >= 0) px(1, 12, Cheek)
-    if (frame >= 1) px(3, 10, CapBand)
-    if (frame >= 2) px(2, 11, Color(0xFF44BBCC))
-    if (frame >= 3) px(1, 10, Color(0xFF8866EE))
+    if (frame >= 1) px(2, 10, CapBand)
+    if (frame >= 2) px(2, 12, Color(0xFF44BBCC))
+    if (frame >= 3) px(1, 11, Color(0xFF8866EE))
 }
 
 /**
@@ -858,11 +870,29 @@ private fun drawTentacles(
                     cols.forEach { x -> px(x, 14, skin.shade) }
                     px(4, 13, skin.shade)
                     val bob = if (frame % 2 == 0) 0 else 1
-                    px(3, 12 - bob, GlassHandle)
-                    px(3, 11 - bob, GlassHandle)
-                    px(3, 10 - bob, Cheek)        // brush tip, paint-loaded
+                    px(4, 12 - bob, GlassHandle)
+                    px(4, 11 - bob, Cheek)        // brush tip, paint-loaded, at canvas edge
                 } else {
                     for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
+                }
+            }
+        }
+        OttoMood.FLOATING -> {
+            // Parachute drift: arms fanned out wide and shallow (frame 0), then a
+            // gentle contraction (frame 1) — spreading and squeezing to manage the
+            // descent, the way animated octopuses parachute down.
+            TENTACLE_COLS.forEachIndexed { idx, cols ->
+                val a = cols.first
+                val b = cols.last
+                val fan1 = (if (idx >= 3) b + 1 else a - 1).coerceIn(0, 19)
+                val fan2 = (if (idx >= 3) b + 2 else a - 2).coerceIn(0, 19)
+                if (frame == 0) {
+                    cols.forEach { x -> px(x, 14, skin.shade) }
+                    px(fan1, 14, skin.shade)
+                    px(fan2, 15, skin.shade)
+                } else {
+                    for (y in 14..15) cols.forEach { x -> px(x, y, skin.shade) }
+                    px(fan1, 16, skin.shade)
                 }
             }
         }

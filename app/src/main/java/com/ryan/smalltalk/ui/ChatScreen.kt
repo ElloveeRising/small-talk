@@ -15,6 +15,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -294,50 +295,71 @@ fun ChatScreen(
         val exX = remember { Animatable(12f) }
         val exY = remember { Animatable(0f) }
         var inkPoofAt by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+        var manualRecall by remember { mutableStateOf(false) }   // tap the explorer → home
         val homeX = 12f
         val homeY = (screenH - 150.dp).value.coerceAtLeast(0f)
         val farX = (screenW - 72.dp).value.coerceAtLeast(0f)
 
         suspend fun runExpedition() {
-                exX.snapTo(homeX); exY.snapTo(homeY)
-                explorerMood = OttoMood.CRAWLING
-                ottoAway = true
-                var recalled = false
-                coroutineScope {
-                    val path = launch {
-                        exX.animateTo(6f, tween(1500))
-                        exY.animateTo(10f, tween(11_000, easing = LinearEasing))    // slow climb
-                        explorerMood = OttoMood.IDLE
-                        delay(1700)                                                 // take in the view
-                        explorerMood = OttoMood.CRAWLING
-                        exX.animateTo(farX, tween(12_000, easing = LinearEasing))   // cross the top
-                        explorerMood = OttoMood.READING
-                        delay(1800)                                                 // peek down at the chat
-                        explorerMood = OttoMood.CRAWLING
-                        exX.animateTo(6f, tween(12_000, easing = LinearEasing))     // wander back
-                        exY.animateTo(homeY, tween(11_000, easing = LinearEasing))  // climb down
+            exX.snapTo(homeX); exY.snapTo(homeY)
+            explorerMood = OttoMood.CRAWLING
+            ottoAway = true
+            var recalled = false
+            coroutineScope {
+                val path = launch {
+                    // Up the left edge first — octopuses like walls.
+                    exX.animateTo(6f, tween(1200))
+                    exY.animateTo(14f, tween(9_000, easing = LinearEasing))
+                    // Then a handful of random waypoints across the WHOLE screen —
+                    // including right over the chat. Otto lives in there; the messages
+                    // are his furniture. Downhill legs switch to a parachute drift.
+                    repeat(Random.nextInt(3, 6)) {
+                        val tx = Random.nextInt(6, farX.toInt().coerceAtLeast(7)).toFloat()
+                        val ty = Random.nextInt(10, (homeY - 60f).toInt().coerceAtLeast(11)).toFloat()
+                        val dropping = ty > exY.value + 40f
+                        explorerMood = if (dropping) OttoMood.FLOATING else OttoMood.CRAWLING
+                        val dist = kotlin.math.abs(tx - exX.value) + kotlin.math.abs(ty - exY.value)
+                        val ms = (dist * 28).toInt().coerceIn(2_500, 9_000)
+                        coroutineScope {
+                            joinAll(
+                                launch { exX.animateTo(tx, tween(ms, easing = LinearEasing)) },
+                                launch { exY.animateTo(ty, tween(ms, easing = LinearEasing)) },
+                            )
+                        }
+                        // Pause: look around, or peek down at whatever's beneath him.
+                        explorerMood = if (Random.nextBoolean()) OttoMood.IDLE else OttoMood.READING
+                        delay(Random.nextLong(1_200, 2_600))
                     }
-                    val watcher = launch {
-                        snapshotFlow { curInput.isNotEmpty() || curStreaming }.first { it }
-                        recalled = true
-                        path.cancel()
-                    }
-                    path.join()
-                    watcher.cancel()
-                }
-                if (recalled) {
-                    inkPoofAt = exX.value to exY.value
-                    explorerMood = OttoMood.JETTING
+                    // Drift home like a leaf, then settle.
+                    explorerMood = OttoMood.FLOATING
                     coroutineScope {
                         joinAll(
-                            launch { exX.animateTo(homeX, tween(700, easing = FastOutSlowInEasing)) },
-                            launch { exY.animateTo(homeY, tween(700, easing = FastOutSlowInEasing)) },
+                            launch { exX.animateTo(homeX, tween(6_000, easing = LinearEasing)) },
+                            launch { exY.animateTo(homeY, tween(6_000, easing = FastOutSlowInEasing)) },
                         )
                     }
-                    explorerMood = OttoMood.EXCITED
-                    delay(700)
                 }
-                ottoAway = false
+                val watcher = launch {
+                    snapshotFlow { curInput.isNotEmpty() || curStreaming || manualRecall }.first { it }
+                    recalled = true
+                    path.cancel()
+                }
+                path.join()
+                watcher.cancel()
+            }
+            if (recalled) {
+                // Jet home FAST — the user needs him and the strip shouldn't sit empty.
+                inkPoofAt = exX.value to exY.value
+                explorerMood = OttoMood.JETTING
+                coroutineScope {
+                    joinAll(
+                        launch { exX.animateTo(homeX, tween(450, easing = FastOutSlowInEasing)) },
+                        launch { exY.animateTo(homeY, tween(450, easing = FastOutSlowInEasing)) },
+                    )
+                }
+            }
+            ottoAway = false
+            manualRecall = false
         }
 
         LaunchedEffect(Unit) {
@@ -347,9 +369,13 @@ fun ChatScreen(
                 runExpedition()
             }
         }
-        // Quadruple-tap demo: expedition on demand, wherever the cycle lands on it.
+        // Quadruple-tap demo: expedition on demand. Guarded against launching with text
+        // in the input box — that used to recall him the same instant he left, which
+        // looked like a confusing half-second squeeze-flash.
         LaunchedEffect(expeditionDemoTick) {
-            if (expeditionDemoTick > 0 && !ottoAway && !inkWipe) runExpedition()
+            if (expeditionDemoTick > 0 && !ottoAway && !inkWipe &&
+                curInput.isEmpty() && !curStreaming
+            ) runExpedition()
         }
 
         if (ottoAway) {
@@ -357,7 +383,10 @@ fun ChatScreen(
                 mood = explorerMood,
                 skin = skin,
                 wearingCap = state.thinking,
-                modifier = Modifier.offset(exX.value.dp, exY.value.dp),
+                modifier = Modifier
+                    .offset(exX.value.dp, exY.value.dp)
+                    // Tap the wanderer and he heads straight home (Ryan's note).
+                    .clickable { manualRecall = true },
             )
         }
         inkPoofAt?.let { at -> InkPoof(at) { inkPoofAt = null } }
@@ -367,21 +396,24 @@ fun ChatScreen(
         if (inkWipe) {
             val cover = remember { Animatable(0f) }
             LaunchedEffect(Unit) {
-                cover.animateTo(1f, tween(340, easing = FastOutSlowInEasing))
+                cover.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
                 onRefresh()
-                delay(140)
-                cover.animateTo(0f, tween(520))
+                delay(120)
+                cover.animateTo(0f, tween(360))
                 inkWipe = false
             }
+            // Fourth-wall ink: pitch black, aimed at the user, ~0.75s total. At full
+            // cover NOTHING shows through — like real ink hit the inside of the glass.
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val t = cover.value
-                val ink = Color(0xFF160B2E)
-                val maxR = size.maxDimension * 1.15f
+                val ink = Color(0xFF060410)
+                val maxR = size.maxDimension * 1.2f
                 val cx = size.width * 0.16f
                 val cy = size.height * 0.80f
-                drawCircle(ink.copy(alpha = (t * 0.98f).coerceIn(0f, 1f)), maxR * t, Offset(cx, cy))
-                drawCircle(ink.copy(alpha = (t * 0.90f).coerceIn(0f, 1f)), maxR * t * 0.78f, Offset(cx + 80f, cy - 160f))
-                drawCircle(ink.copy(alpha = (t * 0.85f).coerceIn(0f, 1f)), maxR * t * 0.60f, Offset(cx + 180f, cy + 40f))
+                drawCircle(ink.copy(alpha = t.coerceIn(0f, 1f)), maxR * t, Offset(cx, cy))
+                drawCircle(ink.copy(alpha = (t * 0.98f).coerceIn(0f, 1f)), maxR * t * 0.8f, Offset(cx + 90f, cy - 180f))
+                drawCircle(ink.copy(alpha = (t * 0.96f).coerceIn(0f, 1f)), maxR * t * 0.66f, Offset(size.width * 0.7f, size.height * 0.3f))
+                drawCircle(ink.copy(alpha = (t * 0.95f).coerceIn(0f, 1f)), maxR * t * 0.55f, Offset(size.width * 0.85f, size.height * 0.75f))
             }
         }
         }
@@ -429,10 +461,14 @@ private fun OttoStrip(
     // `strollX` is 0 (home, far left) → 1 (far right); animated smoothly. `strolling`
     // gates the CRAWLING mood + the status text + fading the labels.
     var strolling by remember { mutableStateOf(false) }
+    var strollFast by remember { mutableStateOf(false) }   // hustle-home when interrupted
     var strollTarget by remember { mutableFloatStateOf(0f) }
     val strollX by animateFloatAsState(
         targetValue = strollTarget,
-        animationSpec = tween(2000, easing = FastOutSlowInEasing),
+        // An unhurried amble (~15 s across) — there's no reason to rush a stroll.
+        // When the user needs him mid-walk, strollFast snaps him home in ~0.7 s.
+        animationSpec = if (strollFast) tween(700, easing = FastOutSlowInEasing)
+        else tween(14_500, easing = LinearEasing),
         label = "strollX",
     )
     val labelAlpha by animateFloatAsState(
@@ -481,18 +517,37 @@ private fun OttoStrip(
             }
         }
     }
-    // Stroll scheduler — every ~30-55s of calm idleness, take a walk across and back.
+    // Stroll scheduler — every ~45-80s of calm idleness, an unhurried walk across the
+    // strip and back. Interrupted gracefully: typing or a streaming answer sends him
+    // hustling home instead of finishing the lap.
     LaunchedEffect(Unit) {
+        suspend fun calmFor(ms: Long): Boolean {
+            var t = 0L
+            while (t < ms) {
+                delay(250); t += 250
+                if (curPipeline != null || curInputText.isNotEmpty()) return false
+            }
+            return true
+        }
         while (true) {
-            delay(Random.nextLong(30_000, 55_000))
-            val calm = pipelineMood == null && inputText.isEmpty() &&
+            delay(Random.nextLong(45_000, 80_000))
+            val calm = curPipeline == null && curInputText.isEmpty() &&
                 idleSeconds in 10..110 && state.errorMessage == null
             if (calm && !strolling) {
                 strolling = true
-                strollTarget = 1f      // walk to the right
-                delay(2200)
-                strollTarget = 0f      // walk back home
-                delay(2200)
+                strollFast = false
+                strollTarget = 1f                    // amble right
+                var finished = calmFor(15_000)
+                if (finished) {
+                    strollTarget = 0f                // amble home
+                    finished = calmFor(15_000)
+                }
+                if (!finished) {
+                    strollFast = true                // user needs him — hustle back
+                    strollTarget = 0f
+                    delay(750)
+                    strollFast = false
+                }
                 strolling = false
             }
         }
@@ -505,7 +560,7 @@ private fun OttoStrip(
                 idleSeconds in 5..115 && !strolling && actMood == null
             if (!calm) continue
             when (Random.nextInt(3)) {
-                0 -> { actMood = OttoMood.DANCING; delay(4_500); actMood = null }
+                0 -> { actMood = OttoMood.DANCING; delay(9_000); actMood = null }
                 1 -> { actMood = OttoMood.PAINTING; delay(6_800); actMood = null }
                 else -> {
                     bubbleActive = true
@@ -535,7 +590,7 @@ private fun OttoStrip(
         if (demoRequest == 0) return@LaunchedEffect
         when ((demoRequest - 1) % 5) {
             0 -> if (actMood == null) {
-                try { actMood = OttoMood.DANCING; delay(4_500) } finally { actMood = null }
+                try { actMood = OttoMood.DANCING; delay(9_000) } finally { actMood = null }
             }
             1 -> if (actMood == null) {
                 try { actMood = OttoMood.PAINTING; delay(6_800) } finally { actMood = null }
@@ -604,6 +659,7 @@ private fun OttoStrip(
         OttoMood.JETTING -> "💨"
         OttoMood.DANCING -> "Otto's vibing ♪"
         OttoMood.PAINTING -> "Otto's painting…"
+        OttoMood.FLOATING -> "Otto's drifting…"
         OttoMood.IDLE ->
             if (state.thinking) "Thinking mode on" else "Otto's listening"
     }
@@ -677,20 +733,28 @@ private fun OttoStrip(
             )
         }
 
-        // A bubble he blew, drifting up and away.
+        // A little stream of bubbles he blew, drifting up and away — three of them,
+        // staggered, so the gag is actually visible without losing its subtlety.
         if (bubbleActive) {
             val t = bubbleT.value
             Canvas(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = 34.dp + 10.dp * t, y = (-6).dp - 30.dp * t)
-                    .size(10.dp),
+                    .offset(x = 22.dp, y = (-22).dp)
+                    .size(70.dp, 56.dp),
             ) {
-                drawCircle(
-                    Color.White.copy(alpha = (0.45f * (1f - t * 0.6f)).coerceIn(0f, 1f)),
-                    3.dp.toPx() + 1.5.dp.toPx() * t,
-                    center,
-                )
+                fun one(p: Float, dx: Float, r: Float) {
+                    if (p <= 0f || p > 1f) return
+                    val a = (0.6f * (1f - p * 0.7f)).coerceIn(0f, 1f)
+                    drawCircle(
+                        Color.White.copy(alpha = a),
+                        r,
+                        Offset(12.dp.toPx() + dx + 7.dp.toPx() * p, size.height - 44.dp.toPx() * p),
+                    )
+                }
+                one(t, 0f, 3.5.dp.toPx())
+                one((t - 0.22f) / 0.78f, 10.dp.toPx(), 2.5.dp.toPx())
+                one((t - 0.42f) / 0.58f, -7.dp.toPx(), 2.dp.toPx())
             }
         }
         // The fish. It has places to be.
