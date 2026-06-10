@@ -1,10 +1,23 @@
 # Small Talk
 
+<p align="center">
+  <img src="docs/social-preview.png" alt="Small Talk — a private AI that lives on your phone. Otto the pixel octopus." width="760">
+</p>
+
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/ElloveeRising/small-talk?color=8866EE&label=release" alt="Latest release"></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/downloads/ElloveeRising/small-talk/total?color=44BBCC&label=downloads" alt="Total downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-FFD24F" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/Android-15%2B-3DDC84?logo=android&logoColor=white" alt="Android 15+">
+</p>
+
 **A private AI assistant that runs entirely on your Android phone. No accounts, no cloud, no telemetry. Nothing you type ever leaves your device.**
 
 Meet **Otto** — a little octopus who lives in the corner of the app, types your replies on a tiny keyboard, reads over your shoulder while you write, and falls asleep when you leave him alone too long. He's powered by Google's Gemma models running locally through [LiteRT-LM](https://ai.google.dev/edge/litert-lm), so every conversation happens on-device.
 
-<!-- TODO: drop a screenshot or two here once we have clean ones -->
+<p align="center">
+  <img src="docs/screenshots/chat.png" alt="Chatting with Otto" width="260">&nbsp;&nbsp;<img src="docs/screenshots/typing.png" alt="Otto reads along while you type — thinking cap on" width="260">&nbsp;&nbsp;<img src="docs/screenshots/settings.png" alt="Settings — choose Otto's brain" width="260">
+</p>
 
 ---
 
@@ -98,4 +111,4 @@ Small Talk is free, open-source, and always will be — no ads, no tracking, no 
 
 Built on [Gemma](https://ai.google.dev/gemma) (Google) under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms), served via [Google AI Edge LiteRT-LM](https://ai.google.dev/edge/litert-lm) (Apache 2.0). The model weights are redistributed by the [`litert-community`](https://huggingface.co/litert-community) organization on Hugging Face.
 
-Otto, the app, and this code are by Ryan. Have fun with it.
+Otto, the app, and this code are by Ryan, released under the [MIT License](LICENSE) — free to use, share, and remix. Have fun with it.
