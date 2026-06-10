@@ -44,8 +44,8 @@ import androidx.compose.ui.unit.sp
 import com.ryan.smalltalk.SmallTalkApp
 import com.ryan.smalltalk.llm.ModelDownloader
 import com.ryan.smalltalk.llm.ModelFiles
+import com.ryan.smalltalk.llm.ResponderVariant
 import kotlinx.coroutines.launch
-import java.io.File
 
 private const val E2B_FILENAME = "gemma-4-E2B-it.litertlm"
 
@@ -63,7 +63,6 @@ fun SetupScreen(onReady: () -> Unit) {
     // "find the toggle on the screen that opened" hint if they come back without granting.
     var permissionAttempted by remember { mutableStateOf(false) }
 
-    val expectedFile = remember { File(ModelDownloader.ensureModelsDir(), E2B_FILENAME) }
     val manualOk = ModelFiles.isReadable(manualPath)
 
     val allFilesLauncher = rememberLauncherForActivityResult(
@@ -108,8 +107,7 @@ fun SetupScreen(onReady: () -> Unit) {
     val resolvedModelPath: String? = remember(hasAllFiles, downloadDone, manualPath) {
         when {
             ModelFiles.isReadable(manualPath) -> manualPath
-            expectedFile.exists() && expectedFile.length() > 0 -> expectedFile.absolutePath
-            else -> null
+            else -> ModelFiles.resolveVariantPath(context, ResponderVariant.E2B)
         }
     }
     val modelReady = resolvedModelPath != null
@@ -122,7 +120,7 @@ fun SetupScreen(onReady: () -> Unit) {
         if (resolvedModelPath != null) ModelFiles.setResponderPath(context, resolvedModelPath)
     }
 
-    val canStart = hasAllFiles && modelReady
+    val canStart = modelReady
 
     Column(
         modifier = Modifier
@@ -154,66 +152,20 @@ fun SetupScreen(onReady: () -> Unit) {
         )
         Text(
             "I'm a little assistant who lives entirely on your phone — nothing you tell me ever " +
-                "leaves this device. Let's get me set up. It's just two steps, and I'll wait " +
-                "for you at each one.",
+                "leaves this device. Setup is one step: I just need my brain.",
             color = MutedText, fontSize = 14.sp,
         )
 
-        // ── Step 1: Permission ──
+        // ── The one step: download the brain ──
         StepCard(
-            title = "Step 1 of 2 — Let me reach my brain file",
-            done = hasAllFiles,
-        ) {
-            if (hasAllFiles) {
-                Text(
-                    "Done — thanks! On to step 2. 👇",
-                    color = Color(0xFF6ad97c), fontSize = 13.sp,
-                )
-            } else {
-                Text(
-                    "My \"brain\" is a big file that sits in your phone's storage. Android needs " +
-                        "you to give me permission to read it. When you tap the button below, a " +
-                        "settings screen opens — just flip the switch ON for \"Small Talk\", then " +
-                        "tap back. That's it.",
-                    color = MutedText, fontSize = 13.sp,
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick = {
-                        permissionAttempted = true
-                        allFilesLauncher.launch(ModelFiles.allFilesAccessIntent(context))
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
-                ) { Text("Give permission", color = Color.White) }
-                if (permissionAttempted) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Didn't work? Open the settings screen again, find \"Small Talk\" in the " +
-                            "list, and turn its switch ON.",
-                        color = Color(0xFFffb070), fontSize = 12.sp,
-                    )
-                }
-            }
-        }
-
-        // ── Step 2: Download the brain ──
-        StepCard(
-            title = "Step 2 of 2 — Download my brain",
+            title = "Give me a brain 🧠",
             done = modelReady,
-            dimmed = !hasAllFiles,
         ) {
             when {
-                !hasAllFiles -> {
-                    Text(
-                        "Finish step 1 first, then I'll grab my brain.",
-                        color = MutedText, fontSize = 13.sp,
-                    )
-                }
                 modelReady -> {
                     Text("My brain's ready ✓", color = Color(0xFF6ad97c), fontSize = 14.sp)
                     Text(
-                        "Stored safely in your Downloads folder. You only download this once.",
+                        "Stored safely in my own private folder. You only download this once.",
                         color = MutedText, fontSize = 12.sp,
                     )
                 }
@@ -272,11 +224,27 @@ fun SetupScreen(onReady: () -> Unit) {
                 if (showAdvanced) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Point me at a .litertlm file already on your phone. It must be in shared " +
-                            "storage (like your Downloads folder).",
+                        "Point me at a .litertlm file already on your phone (in shared storage, " +
+                            "like Downloads). Reading files outside my own folder is the one " +
+                            "thing Android makes me ask permission for — the normal download " +
+                            "above never needs it.",
                         color = MutedText, fontSize = 11.sp,
                     )
                     Spacer(Modifier.height(8.dp))
+                    if (!hasAllFiles) {
+                        OutlinedButton(onClick = {
+                            permissionAttempted = true
+                            allFilesLauncher.launch(ModelFiles.allFilesAccessIntent(context))
+                        }) { Text("Allow file access") }
+                        if (permissionAttempted) {
+                            Text(
+                                "On the screen that opens, find \"Small Talk\" and flip its " +
+                                    "switch ON, then come back here.",
+                                color = Color(0xFFffb070), fontSize = 11.sp,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    } else {
                     OutlinedButton(onClick = { manualPicker.launch(arrayOf("*/*")) }) {
                         Text("Choose file")
                     }
@@ -309,6 +277,7 @@ fun SetupScreen(onReady: () -> Unit) {
                         fontSize = 11.sp,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    }
                 }
             }
         }
@@ -329,7 +298,7 @@ fun SetupScreen(onReady: () -> Unit) {
             ),
         ) {
             Text(
-                if (canStart) "Wake Otto up →" else "Finish both steps to continue",
+                if (canStart) "Wake Otto up →" else "Download a brain to continue",
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
             )

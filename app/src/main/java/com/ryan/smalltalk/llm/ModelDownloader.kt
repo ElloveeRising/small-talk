@@ -1,7 +1,6 @@
 package com.ryan.smalltalk.llm
 
 import android.content.Context
-import android.os.Environment
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,10 +15,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
 
 /**
- * Downloads .litertlm model files directly from a URL into a public Downloads
- * subfolder ([MODELS_DIR_PUBLIC]) — chosen so the user can also see the file
- * in any file manager once it lands, and so [ModelFiles] (which talks to
- * LiteRT-LM by absolute path) can read it via MANAGE_EXTERNAL_STORAGE.
+ * Downloads .litertlm model files directly from a URL into the app-private models dir
+ * ([ModelFiles.appModelsDir]) — a real filesystem path LiteRT-LM can open with no
+ * permission prompt at all. Files downloaded by pre-1.1 builds into the public
+ * Downloads/SmallTalkModels folder are detected and used in place (no re-download).
  *
  * Streams the response body in chunks and publishes progress as a percentage
  * for the UI. Atomic via a `.part` file that gets renamed only on success.
@@ -62,12 +61,20 @@ class ModelDownloader {
         url: String,
         filename: String,
     ): String? = withContext(Dispatchers.IO) {
-        val dir = ensureModelsDir()
+        val dir = ensureModelsDir(context)
         val finalFile = File(dir, filename)
         if (finalFile.exists() && finalFile.length() > 0) {
             Log.i(TAG, "Model already present: ${finalFile.absolutePath}")
             _state.value = State.Done(finalFile.absolutePath)
             return@withContext finalFile.absolutePath
+        }
+        // Downloaded by a pre-1.1 install into the public folder? Use it where it sits —
+        // never make someone pull 3 GB twice.
+        val legacyFile = File(ModelFiles.legacyModelsDir(), filename)
+        if (ModelFiles.isReadable(legacyFile.absolutePath)) {
+            Log.i(TAG, "Using legacy model location: ${legacyFile.absolutePath}")
+            _state.value = State.Done(legacyFile.absolutePath)
+            return@withContext legacyFile.absolutePath
         }
 
         val partFile = File(dir, "$filename.part")
@@ -145,20 +152,14 @@ class ModelDownloader {
     companion object {
         private const val TAG = "ModelDownloader"
 
-        /** Folder where downloaded .litertlm files live. Public so a Files app can see them. */
+        /** Pre-1.1 public folder name under Downloads. Reads only, via [ModelFiles.legacyModelsDir]. */
         const val MODELS_DIR_PUBLIC = "SmallTalkModels"
 
-        fun ensureModelsDir(): File {
-            val downloads = Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_DOWNLOADS
-            )
-            val dir = File(downloads, MODELS_DIR_PUBLIC)
-            if (!dir.exists()) dir.mkdirs()
-            return dir
-        }
+        /** Where new downloads land: the app-private models dir. No permission needed. */
+        fun ensureModelsDir(context: Context): File = ModelFiles.appModelsDir(context)
 
-        fun expectedPathFor(filename: String): String =
-            File(ensureModelsDir(), filename).absolutePath
+        fun expectedPathFor(context: Context, filename: String): String =
+            File(ensureModelsDir(context), filename).absolutePath
 
         /**
          * Direct download URLs for the .litertlm weights, served by the

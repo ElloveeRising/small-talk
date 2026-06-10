@@ -58,6 +58,8 @@ private fun App() {
     val snackbar = remember { SnackbarHostState() }
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
+    val downloadState by vm.downloaderState.collectAsState()
+
     when {
         showSettings -> SettingsScreen(
             pipeline = state.pipeline,
@@ -66,6 +68,8 @@ private fun App() {
             activeVariant = state.activeVariant,
             e4bAvailable = state.e4bAvailable,
             e8bAvailable = state.e8bAvailable,
+            e4bDownloadState = downloadState,
+            onDownloadE4B = vm::downloadE4B,
             onWebAugmentationChange = vm::setWebAugmentation,
             onThinkingChange = vm::setThinking,
             onSwitchResponder = vm::switchResponder,

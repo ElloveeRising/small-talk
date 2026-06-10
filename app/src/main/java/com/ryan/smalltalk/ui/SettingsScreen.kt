@@ -3,9 +3,11 @@ package com.ryan.smalltalk.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -37,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
+import androidx.core.net.toUri
+import com.ryan.smalltalk.llm.ModelDownloader
 import com.ryan.smalltalk.llm.ModelState
 import com.ryan.smalltalk.llm.ModelStatus
 import com.ryan.smalltalk.llm.PipelineStatus
@@ -49,6 +54,8 @@ fun SettingsScreen(
     activeVariant: ResponderVariant,
     e4bAvailable: Boolean,
     e8bAvailable: Boolean,
+    e4bDownloadState: ModelDownloader.State,
+    onDownloadE4B: () -> Unit,
     thinking: Boolean,
     onWebAugmentationChange: (Boolean) -> Unit,
     onThinkingChange: (Boolean) -> Unit,
@@ -103,18 +110,22 @@ fun SettingsScreen(
             val loading = pipeline.responder.state == ModelState.LOADING
             val variants = buildList {
                 add(ResponderVariant.E2B)
-                if (e4bAvailable) add(ResponderVariant.E4B)
+                add(ResponderVariant.E4B)   // always listed — downloadable in place if absent
                 if (e8bAvailable) add(ResponderVariant.E8B)
             }
             variants.forEachIndexed { idx, variant ->
+                val present = variant != ResponderVariant.E4B || e4bAvailable
                 ModelCard(
                     variant = variant,
                     selected = activeVariant == variant,
-                    enabled = !loading,
+                    enabled = !loading && present,
                     onClick = {
-                        if (!loading && activeVariant != variant) onSwitchResponder(variant)
+                        if (!loading && present && activeVariant != variant) onSwitchResponder(variant)
                     },
                 )
+                if (variant == ResponderVariant.E4B && !e4bAvailable) {
+                    E4BDownloadBlock(state = e4bDownloadState, onDownload = onDownloadE4B)
+                }
                 if (idx < variants.size - 1) Spacer(Modifier.height(8.dp))
             }
             if (loading) {
@@ -174,10 +185,15 @@ fun SettingsScreen(
         Section("Support Otto") {
             Text(
                 "Otto is free and always will be — no ads, no tracking, no subscription. If he's " +
-                    "useful to you, a tip helps keep him swimming. Tap an address to copy it.",
+                    "useful to you, a tip helps keep him swimming. Tap a link to open it, or an " +
+                    "address to copy it.",
                 color = MutedText, fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 10.dp),
             )
+            LinkDonateRow("Buy Me a Coffee ☕", "buymeacoffee.com/aSchellCompany", BMC_URL)
+            Spacer(Modifier.height(8.dp))
+            DonateRow("Cash App", CASHAPP_TAG)
+            Spacer(Modifier.height(8.dp))
             DonateRow("Monero (XMR)", MONERO_ADDRESS)
             Spacer(Modifier.height(8.dp))
             DonateRow("Bitcoin Lightning", LIGHTNING_INVOICE)
@@ -186,7 +202,7 @@ fun SettingsScreen(
         }
 
         Section("About") {
-            Text("Small Talk v1.0", color = Color.White, fontSize = 13.sp)
+            Text("Small Talk v1.1", color = Color.White, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Fully on-device. Built on Gemma via Google AI Edge LiteRT-LM (Apache 2.0). " +
@@ -198,7 +214,9 @@ fun SettingsScreen(
     }
 }
 
-// Public-by-design wallet addresses. Safe to ship in the clear.
+// Public-by-design donation handles. Safe to ship in the clear.
+private const val BMC_URL = "https://buymeacoffee.com/aSchellCompany"
+private const val CASHAPP_TAG = "\$Aircityryan"
 private const val MONERO_ADDRESS =
     "4B3RLHnNS6tNeHEneTXcecTAntHknXzbLYR1yBP3yUWS9baUjdnHv4UdhjRubaSexuPGEGmJ4QKpxHdrHNjLMuZpHf15gUt"
 private const val LIGHTNING_INVOICE =
@@ -232,6 +250,71 @@ private fun DonateRow(label: String, address: String) {
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
         )
+    }
+}
+
+/** A donation row that opens a link instead of copying an address. */
+@Composable
+private fun LinkDonateRow(label: String, display: String, url: String) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
+            .background(Color(0xFF1f1f37), RoundedCornerShape(8.dp))
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f))
+            Text("Open ↗", color = AccentColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(display, color = MutedText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+/** Inline download UI shown under the E4B card while that brain isn't on the device yet. */
+@Composable
+private fun E4BDownloadBlock(state: ModelDownloader.State, onDownload: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 6.dp, bottom = 2.dp)) {
+        when (state) {
+            is ModelDownloader.State.Downloading -> {
+                val pct = (state.pct * 100).toInt()
+                Text("Downloading the E4B brain… $pct%", color = MutedText, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { state.pct },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = AccentColor,
+                    trackColor = Color(0xFF333355),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "You can leave this screen — I'll keep downloading.",
+                    color = MutedText, fontSize = 11.sp,
+                )
+            }
+            is ModelDownloader.State.Failed -> {
+                Text(
+                    "Download didn't finish (${state.reason}).",
+                    color = Color(0xFFff7070), fontSize = 11.sp,
+                )
+                TextButton(onClick = onDownload, contentPadding = PaddingValues(0.dp)) {
+                    Text("Try again", color = AccentColor, fontSize = 12.sp)
+                }
+            }
+            else -> {
+                TextButton(onClick = onDownload, contentPadding = PaddingValues(0.dp)) {
+                    Text("⬇  Download the E4B brain (~4 GB)", color = AccentColor, fontSize = 13.sp)
+                }
+                Text(
+                    "Wi-Fi strongly recommended. This brain wants a phone with plenty of RAM — " +
+                        "if there's a memory warning above, E2B is the better home.",
+                    color = MutedText, fontSize = 11.sp,
+                )
+            }
+        }
     }
 }
 

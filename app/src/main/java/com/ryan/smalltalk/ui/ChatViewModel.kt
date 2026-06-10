@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ryan.smalltalk.SmallTalkApp
+import com.ryan.smalltalk.llm.ModelDownloader
 import com.ryan.smalltalk.llm.ModelFiles
 import com.ryan.smalltalk.llm.PipelineStatus
 import com.ryan.smalltalk.llm.ResponderVariant
@@ -78,7 +79,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun decideStartScreen() {
         val ctx = app.applicationContext
-        val ready = ModelFiles.hasAllFilesAccess() && ModelFiles.isConfigured(ctx)
+        // No permission check here: the standard app-private model needs none. isConfigured
+        // resolves app-private, legacy-public, and custom paths in that order.
+        val ready = ModelFiles.isConfigured(ctx)
         if (ready) startModelLoading() else _uiState.value = _uiState.value.copy(screen = Screen.SETUP)
     }
 
@@ -103,6 +106,30 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 responderToolBridge = app.toolBridge,
             )
         }
+    }
+
+    /** Shared download state, surfaced in Settings for the E4B in-place download. */
+    val downloaderState get() = app.downloader.state
+
+    /** Fetch the heavier E4B brain from Settings — runs on the app scope so leaving the
+     *  screen (or rotating) can't cancel a multi-GB transfer. */
+    fun downloadE4B() {
+        val ctx = app.applicationContext
+        app.downloader.reset()
+        app.appScope.launch {
+            val path = app.downloader.download(
+                ctx, ModelDownloader.E4B_URL, ResponderVariant.E4B.filename,
+            )
+            if (path != null) refreshVariantAvailability()
+        }
+    }
+
+    fun refreshVariantAvailability() {
+        val ctx = app.applicationContext
+        _uiState.value = _uiState.value.copy(
+            e4bAvailable = ModelFiles.getVariantPathIfReadable(ctx, ResponderVariant.E4B) != null,
+            e8bAvailable = ModelFiles.getVariantPathIfReadable(ctx, ResponderVariant.E8B) != null,
+        )
     }
 
     fun setWebAugmentation(enabled: Boolean) {

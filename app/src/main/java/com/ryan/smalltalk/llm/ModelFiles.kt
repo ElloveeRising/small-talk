@@ -22,10 +22,12 @@ enum class ResponderVariant(
 /**
  * Tracks where the two on-device model files live and how to reach them.
  *
- * Access strategy (chosen for v1): all-files access + a real filesystem path. LiteRT-LM's
- * [com.google.ai.edge.litertlm.EngineConfig.modelPath] requires an absolute path, not a
- * content:// URI, so we resolve the SAF pick down to `/storage/emulated/0/...` and persist the
- * resolved path. The ~3 GB of weights are never copied.
+ * Access strategy (v1.1): models download into the app-private external dir ([appModelsDir]) —
+ * a real filesystem path LiteRT-LM can open with NO permission needed. The pre-1.1 public
+ * folder ([legacyModelsDir]) and user-picked custom paths still work as fallbacks; only those
+ * need MANAGE_EXTERNAL_STORAGE, which the setup wizard now requests solely on the advanced
+ * "use my own file" path. LiteRT-LM requires an absolute path (not a content:// URI), and the
+ * ~3 GB of weights are never copied.
  */
 object ModelFiles {
 
@@ -40,14 +42,15 @@ object ModelFiles {
     fun getRouterPath(context: Context): String? = prefs(context).getString(KEY_ROUTER, null)
 
     /**
-     * Returns the path for the active [ResponderVariant] if the file is readable, otherwise falls
-     * back to the raw stored path (so existing setups without the E4B file still work).
+     * Returns a readable path for the active [ResponderVariant] — app-private dir first, then
+     * the legacy public dir, then the user's custom path — or null if nothing is readable.
      */
     fun getResponderPath(context: Context): String? {
         val variant = getResponderVariant(context)
-        val base = prefs(context).getString(KEY_RESPONDER, null) ?: return null
-        val variantPath = siblingPath(base, variant)
-        return if (isReadable(variantPath)) variantPath else base
+        resolveVariantPath(context, variant)?.let { return it }
+        // Custom file with a nonstandard name (advanced path) — honor it for the active variant.
+        val base = prefs(context).getString(KEY_RESPONDER, null)
+        return if (isReadable(base)) base else null
     }
 
     fun setRouterPath(context: Context, path: String) =
@@ -67,13 +70,42 @@ object ModelFiles {
         prefs(context).edit().putString(KEY_RESPONDER_VARIANT, variant.name).apply()
 
     /**
-     * Returns the path for [variant] computed from the same directory as the stored responder
-     * path, or null if that file isn't readable (so the picker can disable unavailable options).
+     * Returns a readable path for [variant], or null (so the picker can show download options).
      */
-    fun getVariantPathIfReadable(context: Context, variant: ResponderVariant): String? {
+    fun getVariantPathIfReadable(context: Context, variant: ResponderVariant): String? =
+        resolveVariantPath(context, variant)
+
+    // ---- Model storage locations ----
+
+    /**
+     * App-private external dir for downloaded models: needs no permission, gives LiteRT-LM a
+     * real filesystem path, and is cleaned up automatically on uninstall. The v1.1+ default.
+     */
+    fun appModelsDir(context: Context): File =
+        File(context.getExternalFilesDir(null), "models").apply { if (!exists()) mkdirs() }
+
+    /**
+     * Pre-1.1 public download location (Downloads/SmallTalkModels). Reading it requires
+     * all-files access — kept as a fallback so existing installs keep working untouched.
+     */
+    fun legacyModelsDir(): File =
+        File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "SmallTalkModels",
+        )
+
+    /**
+     * Resolves a readable file for [variant]: app-private dir, then the legacy public dir,
+     * then a sibling of the user's stored custom path. Null if none are readable.
+     */
+    fun resolveVariantPath(context: Context, variant: ResponderVariant): String? {
+        val appFile = File(appModelsDir(context), variant.filename).absolutePath
+        if (isReadable(appFile)) return appFile
+        val legacyFile = File(legacyModelsDir(), variant.filename).absolutePath
+        if (isReadable(legacyFile)) return legacyFile
         val base = prefs(context).getString(KEY_RESPONDER, null) ?: return null
-        val path = siblingPath(base, variant)
-        return if (isReadable(path)) path else null
+        val sibling = siblingPath(base, variant)
+        return if (isReadable(sibling)) sibling else null
     }
 
     private fun siblingPath(basePath: String, variant: ResponderVariant): String {
@@ -83,11 +115,12 @@ object ModelFiles {
 
     fun clear(context: Context) = prefs(context).edit().clear().apply()
 
-    /** The responder is configured and readable. Router is optional — works without it. */
-    fun isConfigured(context: Context): Boolean {
-        val g = getResponderPath(context)
-        return hasAllFilesAccess() && g != null && isReadable(g)
-    }
+    /**
+     * The responder is configured and readable. Router is optional — works without it.
+     * All-files access is deliberately NOT required here: the standard app-private download
+     * needs no permission at all. Only the advanced bring-your-own-file path requests it.
+     */
+    fun isConfigured(context: Context): Boolean = getResponderPath(context) != null
 
     fun isReadable(path: String?): Boolean {
         if (path.isNullOrBlank()) return false
