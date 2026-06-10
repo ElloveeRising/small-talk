@@ -9,6 +9,7 @@
   <a href="../../releases/latest"><img src="https://img.shields.io/github/downloads/ElloveeRising/small-talk/total?color=44BBCC&label=downloads" alt="Total downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-FFD24F" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Android-15%2B-3DDC84?logo=android&logoColor=white" alt="Android 15+">
+  <a href="https://buymeacoffee.com/aSchellCompany"><img src="https://img.shields.io/badge/%E2%98%95-buy%20me%20a%20coffee-FFDD00" alt="Buy Me a Coffee"></a>
 </p>
 
 **A private AI assistant that runs entirely on your Android phone. No accounts, no cloud, no telemetry. Nothing you type ever leaves your device.**
@@ -59,6 +60,20 @@ That's it. After the one-time model download, everything runs offline.
 
 ---
 
+## Support Otto 🐙
+
+Small Talk is free, open-source, and always will be — no ads, no tracking, no subscriptions. If Otto's useful to you, a tip keeps him swimming:
+
+- ☕ **[Buy Me a Coffee → buymeacoffee.com/aSchellCompany](https://buymeacoffee.com/aSchellCompany)** — the easy one, any card works
+- 💵 **Cash App:** `$Aircityryan`
+- **Monero (XMR):** `4B3RLHnNS6tNeHEneTXcecTAntHknXzbLYR1yBP3yUWS9baUjdnHv4UdhjRubaSexuPGEGmJ4QKpxHdrHNjLMuZpHf15gUt`
+- **Bitcoin (on-chain):** `bc1q4q0u5f7ya3ylwg3h4sdq5yw7cgfpl4ghpu9uap`
+- ⚡ **Bitcoin Lightning:** the in-app **Settings → Support Otto** page has a copy-ready invoice
+
+(The same options are tap-to-copy inside the app under **Settings → Support Otto**.)
+
+---
+
 ## Build it yourself (for developers)
 
 Small Talk is a single-module Android app, Kotlin + Jetpack Compose.
@@ -92,18 +107,6 @@ Then `Build → Generate Signed App Bundle / APK → APK → release`, or `./gra
 - **Vision works on CPU.** Gemma 4 E2B/E4B are natively multimodal; attach an image and Otto can describe it.
 - **`useLegacyPackaging = true`** is required for the native `.so` libraries to load on 16 KB-page devices (Pixel 9 Pro / Android 16) when installed outside the Play Store.
 - Tool calls (web search, time/date) dispatch natively through the Gemma responder's `@Tool` methods.
-
----
-
-## Support Otto 🐙
-
-Small Talk is free, open-source, and always will be — no ads, no tracking, no subscriptions. If Otto's useful to you, a tip keeps him swimming:
-
-- **Monero (XMR):** `4B3RLHnNS6tNeHEneTXcecTAntHknXzbLYR1yBP3yUWS9baUjdnHv4UdhjRubaSexuPGEGmJ4QKpxHdrHNjLMuZpHf15gUt`
-- **Bitcoin (on-chain):** `bc1q4q0u5f7ya3ylwg3h4sdq5yw7cgfpl4ghpu9uap`
-- **Bitcoin Lightning:** see the in-app **Settings → Support Otto** for a copy-ready invoice.
-
-(The same addresses are tap-to-copy inside the app under **Settings → Support Otto**.)
 
 ---
 
