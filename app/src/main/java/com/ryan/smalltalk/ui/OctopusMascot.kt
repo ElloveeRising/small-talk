@@ -101,6 +101,8 @@ private val ScreenText = Color(0xFF7FD9A8)
 private val JetBubble = Color(0xFFB8D4E8)
 private val NightcapBlue = Color(0xFF4a4a78)
 private val CanvasWhite = Color(0xFFEDEAF5)
+private val SunBrown = Color(0xFF7A5230)
+private val StemGreen = Color(0xFF4E9B4E)
 
 private val Cheek = Color(0xFFFF99CC)
 private val ZColor = Color(0xFFCCCCEE)
@@ -158,7 +160,7 @@ fun Otto(
                     OttoMood.CRAWLING -> 360  // brisk walk cycle
                     OttoMood.JETTING -> 240   // rapid squeeze pulses while jetting
                     OttoMood.DANCING -> 520
-                    OttoMood.PAINTING -> 1700 // slow, contemplative brushwork
+                    OttoMood.PAINTING -> 3600 // slow, contemplative brushwork
                     OttoMood.FLOATING -> 1100 // lazy spread-and-contract drift
                 },
                 easing = LinearEasing,
@@ -232,11 +234,20 @@ fun Otto(
     // active moods.
     val bobOffset = if (mood == OttoMood.IDLE && breathePhase > 0.5f) 1 else 0
 
-    Canvas(modifier = modifier.size(pixel * 20, pixel * 21)) {
+    // Prop scenes (typing rig / painting easel) get a wider stage: the prop sits in
+    // cols 0-10, cols 11-13 stay EMPTY (visible open water — per Ryan's sketch), and
+    // Otto's whole body shifts right by 14. Everything drawn through px() rides with
+    // his body; props draw through ppx() in absolute stage coordinates.
+    val propStage = mood == OttoMood.TYPING || mood == OttoMood.PAINTING
+    val gridW = if (propStage) 34 else 20
+    val bodyOff = if (propStage) 14 else 0
+    Canvas(modifier = modifier.size(pixel * gridW, pixel * 21)) {
         val p = pixel.toPx()
         fun px(x: Int, y: Int, c: Color) =
-            drawRect(color = c, topLeft = Offset(x * p, (y + bobOffset) * p), size = Size(p, p))
+            drawRect(color = c, topLeft = Offset((x + bodyOff) * p, (y + bobOffset) * p), size = Size(p, p))
         fun row(xs: IntRange, y: Int, c: Color) = xs.forEach { px(it, y, c) }
+        fun ppx(x: Int, y: Int, c: Color) =
+            drawRect(color = c, topLeft = Offset(x * p, y * p), size = Size(p, p))
 
         // JETTING is a whole-body transformation (squeezed mantle, arms streaming behind),
         // so it draws its own everything and skips the normal head/face path.
@@ -480,20 +491,13 @@ fun Otto(
         // ── Tentacles (rows 14-17, sometimes higher) ─────────────────────────
         drawTentacles(::px, mood, skin, frame, phase)
 
-        // ── Battlestation (TYPING only): floating screen top-left, keys below ───
-        // The screen is fully DETACHED from the keyboard (Ryan's note: the old desk
-        // monitor covered Otto). It hovers in the empty accessory zone so all of Otto
-        // stays visible: he reads the floating display while his left arms type.
+        // ── Painting rig (PAINTING only): easel + sunflower + the reaching arm ──
+        if (mood == OttoMood.PAINTING) drawPaintingRig(::ppx, skin, frame)
+
+        // ── Workstation (TYPING only): real monitor beside him, keys under him ──
         if (mood == OttoMood.TYPING) {
-            for (y in 1..6) for (x in 0..4) px(x, y, KbB)
-            for (y in 2..5) for (x in 1..3) px(x, y, ScreenBg)
-            val lines = frame % 6
-            if (lines >= 1) { px(1, 2, ScreenText); px(2, 2, ScreenText) }
-            if (lines >= 2) { px(1, 3, ScreenText); px(2, 3, ScreenText); px(3, 3, ScreenText) }
-            if (lines >= 3) { px(1, 4, ScreenText) }
-            if (lines >= 4) { px(2, 4, ScreenText); px(3, 4, ScreenText) }
-            if (frame % 2 == 0) px(3, 5, ScreenText)   // blinking cursor
-            // Keyboard under his left arms only — the right arms get the night off.
+            drawMonitor(::ppx, frame)
+            // Keyboard right under his left arms — these coords ride with his body.
             (0..11).forEach { x -> px(x, 18, if (x % 2 == 0) KbA else KbB) }
             row(0..11, 19, KbB)
             TENTACLE_COLS.forEachIndexed { idx, cols ->
@@ -569,18 +573,58 @@ private fun drawMusicNotes(px: (Int, Int, Color) -> Unit, frame: Int) {
 }
 
 /**
- * Easel + canvas for the PAINTING easter egg. Sits LOW (canvas rows 10-13) so it
- * never covers Otto's eyes — he reaches over to it, tentacle-style. Dabs accumulate
- * with the frame.
+ * The painting scene, straight from Ryan's sketch: a proper easel on a tripod
+ * sitting APART from Otto (cols 0-10 of the wide stage; the gap at 11-13 stays
+ * open water), a sunflower taking shape on the canvas, and one long arm reaching
+ * across the gap with a loaded brush.
  */
-private fun drawEasel(px: (Int, Int, Color) -> Unit, frame: Int) {
-    for (y in 14..17) { px(0, y, GlassHandle); px(3, y, GlassHandle) }   // legs
-    for (x in 0..3) px(x, 9, GlassHandle)                                // top rail
-    for (y in 10..13) for (x in 0..3) px(x, y, CanvasWhite)              // canvas
-    if (frame >= 0) px(1, 12, Cheek)
-    if (frame >= 1) px(2, 10, CapBand)
-    if (frame >= 2) px(2, 12, Color(0xFF44BBCC))
-    if (frame >= 3) px(1, 11, Color(0xFF8866EE))
+private fun drawPaintingRig(
+    ppx: (Int, Int, Color) -> Unit,
+    skin: OttoSkin,
+    frame: Int,
+) {
+    // Canvas frame + face
+    for (x in 0..10) { ppx(x, 5, GlassHandle); ppx(x, 14, GlassHandle) }
+    for (y in 6..13) { ppx(0, y, GlassHandle); ppx(10, y, GlassHandle) }
+    for (y in 6..13) for (x in 1..9) ppx(x, y, CanvasWhite)
+    // Tripod, like the sketch
+    ppx(5, 15, GlassHandle); ppx(5, 16, GlassHandle)
+    ppx(3, 16, GlassHandle); ppx(7, 16, GlassHandle)
+    ppx(2, 17, GlassHandle); ppx(5, 17, GlassHandle); ppx(8, 17, GlassHandle)
+    // The sunflower — stem and center are always there; petals stroke in over time.
+    ppx(4, 11, StemGreen); ppx(4, 12, StemGreen); ppx(5, 12, StemGreen)
+    ppx(4, 8, SunBrown); ppx(5, 8, SunBrown); ppx(4, 9, SunBrown); ppx(5, 9, SunBrown)
+    if (frame >= 1) { ppx(4, 7, CapBand); ppx(5, 7, CapBand); ppx(3, 8, CapBand); ppx(6, 8, CapBand) }
+    if (frame >= 2) { ppx(3, 9, CapBand); ppx(6, 9, CapBand) }
+    if (frame >= 3) { ppx(4, 10, CapBand); ppx(5, 10, CapBand) }
+    // The reaching arm — from Otto's lower-left shoulder, across the open gap,
+    // brush tip dabbing the canvas edge with the frame.
+    val bob = if (frame % 2 == 0) 0 else 1
+    ppx(15, 13, skin.shade); ppx(14, 13, skin.shade)
+    ppx(13, 12, skin.shade); ppx(12, 12, skin.shade)
+    ppx(11, 11 + bob, skin.shade)
+    ppx(10, 10 + bob, GlassHandle)   // brush handle
+    ppx(9, 9 + bob, Cheek)           // loaded tip on the canvas
+}
+
+/**
+ * A real little monitor on a stand — a bit over half a head tall and wide, sitting
+ * apart from Otto on the wide stage (cols 0-10; the gap at 11-13 stays open).
+ * Lines of text accumulate as he types; the cursor blinks.
+ */
+private fun drawMonitor(ppx: (Int, Int, Color) -> Unit, frame: Int) {
+    for (y in 6..14) for (x in 0..10) ppx(x, y, KbB)
+    for (y in 7..13) for (x in 1..9) ppx(x, y, ScreenBg)
+    val lines = frame % 6
+    if (lines >= 1) { for (x in 2..5) ppx(x, 8, ScreenText) }
+    if (lines >= 2) { for (x in 2..7) ppx(x, 9, ScreenText) }
+    if (lines >= 3) { for (x in 2..4) ppx(x, 10, ScreenText) }
+    if (lines >= 4) { for (x in 6..7) ppx(x, 10, ScreenText); for (x in 2..6) ppx(x, 11, ScreenText) }
+    if (lines >= 5) { for (x in 2..3) ppx(x, 12, ScreenText) }
+    if (frame % 2 == 0) ppx(if (lines >= 5) 4 else 2, 12, ScreenText)   // blinking cursor
+    // Stand + base
+    ppx(5, 15, KbB); ppx(5, 16, KbB)
+    for (x in 3..7) ppx(x, 17, KbB)
 }
 
 /**
@@ -862,16 +906,11 @@ private fun drawTentacles(
             }
         }
         OttoMood.PAINTING -> {
-            drawEasel(px, frame)
-            // Most arms rest; the second-left arm holds the brush up to the canvas,
-            // bobbing slightly with each new dab.
+            // Arms rest; the LEFTMOST is just a shoulder stub here — its long reach
+            // across the gap to the easel is drawn by drawPaintingRig with the brush.
             TENTACLE_COLS.forEachIndexed { idx, cols ->
-                if (idx == 1) {
+                if (idx == 0) {
                     cols.forEach { x -> px(x, 14, skin.shade) }
-                    px(4, 13, skin.shade)
-                    val bob = if (frame % 2 == 0) 0 else 1
-                    px(4, 12 - bob, GlassHandle)
-                    px(4, 11 - bob, Cheek)        // brush tip, paint-loaded, at canvas edge
                 } else {
                     for (y in 14..16) cols.forEach { x -> px(x, y, skin.shade) }
                 }

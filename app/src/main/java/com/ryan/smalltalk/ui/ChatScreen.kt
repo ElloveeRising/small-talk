@@ -8,6 +8,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -690,7 +691,13 @@ private fun OttoStrip(
             )
             .padding(vertical = 4.dp),
     ) {
-        val ottoWidth = 60.dp   // Otto's natural footprint at 3 dp/px
+        // Otto's footprint: 60 dp normally, 102 dp when a prop scene (typing rig /
+        // painting easel) widens his stage. Animated so the labels glide, not jump.
+        val ottoWidth by animateDpAsState(
+            targetValue = if (mood == OttoMood.TYPING || mood == OttoMood.PAINTING) 102.dp else 60.dp,
+            animationSpec = tween(350),
+            label = "ottoWidth",
+        )
         val maxTravel = (maxWidth - ottoWidth).coerceAtLeast(0.dp)
 
         // Labels (name + status on the left, model chip on the right). Fades out while
