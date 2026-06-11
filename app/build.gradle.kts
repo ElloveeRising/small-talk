@@ -23,10 +23,13 @@ android {
 
     defaultConfig {
         applicationId = "com.ryan.smalltalk"
-        minSdk = 35
+        // minSdk 30 (Android 11, 2020) instead of 35: the engine runs fine on midrange
+        // 2021 hardware (proven on a Galaxy A53), and API 30 is the floor for the
+        // MANAGE_EXTERNAL_STORAGE APIs the advanced file path uses — no guards needed.
+        minSdk = 30
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "2.0"
         vectorDrawables { useSupportLibrary = true }
     }
 

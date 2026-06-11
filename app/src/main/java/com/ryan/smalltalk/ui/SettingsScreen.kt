@@ -202,7 +202,7 @@ fun SettingsScreen(
         }
 
         Section("About") {
-            Text("Small Talk v1.1", color = Color.White, fontSize = 13.sp)
+            Text("Small Talk v2.0", color = Color.White, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Fully on-device. Built on Gemma via Google AI Edge LiteRT-LM (Apache 2.0). " +

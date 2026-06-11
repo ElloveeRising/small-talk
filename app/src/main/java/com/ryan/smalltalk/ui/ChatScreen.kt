@@ -84,6 +84,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -297,6 +298,7 @@ fun ChatScreen(
         val exY = remember { Animatable(0f) }
         var inkPoofAt by remember { mutableStateOf<Pair<Float, Float>?>(null) }
         var manualRecall by remember { mutableStateOf(false) }   // tap the explorer → home
+        var splashAt by remember { mutableStateOf<Pair<Float, Float>?>(null) }
         val homeX = 12f
         val homeY = (screenH - 150.dp).value.coerceAtLeast(0f)
         val farX = (screenW - 72.dp).value.coerceAtLeast(0f)
@@ -361,6 +363,8 @@ fun ChatScreen(
             }
             ottoAway = false
             manualRecall = false
+            // He surfaces at his home spot — little splash where he breaks the water.
+            splashAt = homeX to homeY
         }
 
         LaunchedEffect(Unit) {
@@ -391,18 +395,38 @@ fun ChatScreen(
             )
         }
         inkPoofAt?.let { at -> InkPoof(at) { inkPoofAt = null } }
+        splashAt?.let { at -> SurfaceSplash(at) { splashAt = null } }
 
-        // ── Ink-wipe refresh: the screen floods with Otto's ink; the wipe happens at
-        // full cover, and the fresh empty chat is revealed as the ink thins away. ──
+        // ── Ink-wipe refresh, fourth-wall edition: Otto LUNGES at the glass, squeezes,
+        // and inks the entire screen point-blank; the wipe happens at full cover, and
+        // the fresh empty chat is revealed as the ink thins away. ──
         if (inkWipe) {
+            val lunge = remember { Animatable(0f) }
             val cover = remember { Animatable(0f) }
             LaunchedEffect(Unit) {
-                cover.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
+                lunge.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+                cover.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
                 onRefresh()
                 delay(120)
                 cover.animateTo(0f, tween(360))
                 inkWipe = false
             }
+            // Otto rushing the camera — grows ~4x as he closes the distance.
+            val lt = lunge.value
+            Otto(
+                mood = OttoMood.JETTING,
+                skin = skin,
+                modifier = Modifier
+                    .offset(
+                        x = 12.dp + (screenW * 0.32f - 12.dp) * lt,
+                        y = (screenH - 150.dp) + (screenH * 0.30f - (screenH - 150.dp)) * lt,
+                    )
+                    .graphicsLayer {
+                        val s = 1f + 3.4f * lt
+                        scaleX = s
+                        scaleY = s
+                    },
+            )
             // Fourth-wall ink: pitch black, aimed at the user, ~0.75s total. At full
             // cover NOTHING shows through — like real ink hit the inside of the glass.
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -726,9 +750,9 @@ private fun OttoStrip(
         }
 
         // Otto himself, offset horizontally during a stroll — unless he's off on an
-        // expedition, in which case the explorer overlay owns him and his spot sits
-        // conspicuously empty.
-        if (!ottoAway) {
+        // expedition (explorer overlay owns him) or mid-ink-lunge (the big fourth-wall
+        // Otto owns him), in which case his spot sits conspicuously empty.
+        if (!ottoAway && !inking) {
             Otto(
                 mood = mood,
                 skin = skin,
@@ -818,6 +842,41 @@ private fun InkPoof(at: Pair<Float, Float>, onDone: () -> Unit) {
             Color.White.copy(alpha = alpha * 0.35f), 1.5.dp.toPx(),
             center + Offset(9.dp.toPx(), -22.dp.toPx() * v),
         )
+    }
+}
+
+/**
+ * The little splash where Otto breaks the surface arriving home — two expanding
+ * ripple rings and a few droplets tossed upward, gone in half a second.
+ */
+@Composable
+private fun SurfaceSplash(at: Pair<Float, Float>, onDone: () -> Unit) {
+    val t = remember { Animatable(0f) }
+    LaunchedEffect(at) { t.animateTo(1f, tween(520)); onDone() }
+    Canvas(
+        modifier = Modifier
+            .offset((at.first - 8).dp, (at.second - 4).dp)
+            .size(76.dp, 50.dp),
+    ) {
+        val v = t.value
+        val alpha = ((1f - v) * 0.55f).coerceIn(0f, 1f)
+        val ripple = Color(0xFFB8D4E8)
+        // Two ripple rings widening outward
+        drawOval(
+            ripple.copy(alpha = alpha),
+            topLeft = Offset(center.x - (14 + 22 * v).dp.toPx() / 2, center.y - (4 + 3 * v).dp.toPx() / 2),
+            size = androidx.compose.ui.geometry.Size((14 + 22 * v).dp.toPx(), (4 + 3 * v).dp.toPx()),
+        )
+        drawOval(
+            ripple.copy(alpha = alpha * 0.6f),
+            topLeft = Offset(center.x - (8 + 30 * v).dp.toPx() / 2, center.y - (3 + 5 * v).dp.toPx() / 2),
+            size = androidx.compose.ui.geometry.Size((8 + 30 * v).dp.toPx(), (3 + 5 * v).dp.toPx()),
+        )
+        // Droplets: up fast, then falling back as the splash ages
+        val rise = if (v < 0.55f) v / 0.55f else 1f - (v - 0.55f) / 0.45f * 0.6f
+        drawCircle(ripple.copy(alpha = alpha), 1.6.dp.toPx(), center + Offset(-9.dp.toPx() * v, -16.dp.toPx() * rise))
+        drawCircle(ripple.copy(alpha = alpha), 2.dp.toPx(), center + Offset(2.dp.toPx() * v, -20.dp.toPx() * rise))
+        drawCircle(ripple.copy(alpha = alpha * 0.8f), 1.4.dp.toPx(), center + Offset(10.dp.toPx() * v, -13.dp.toPx() * rise))
     }
 }
 
