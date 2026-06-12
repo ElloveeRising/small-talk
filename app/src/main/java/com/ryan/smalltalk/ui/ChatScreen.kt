@@ -121,6 +121,18 @@ fun ChatScreen(
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
     }
+    // Follow the tail while a reply streams in: as the last message grows, stick to
+    // its bottom — but only when the user is already there. Scrolling up to re-read
+    // mid-reply never gets yanked back down.
+    val lastMsgLen = state.messages.lastOrNull()
+        ?.let { it.text.length + (it.thinkingDisplay?.length ?: 0) } ?: 0
+    LaunchedEffect(state.messages.size, lastMsgLen) {
+        if (state.messages.isEmpty()) return@LaunchedEffect
+        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+        if (lastVisible != null && lastVisible >= state.messages.size - 1) {
+            listState.scrollToItem(state.messages.size - 1, scrollOffset = Int.MAX_VALUE)
+        }
+    }
 
     val skin = OttoSkin.forVariant(state.activeVariant)
 

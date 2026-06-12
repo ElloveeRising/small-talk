@@ -8,13 +8,13 @@
   <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/ElloveeRising/small-talk?color=8866EE&label=release" alt="Latest release"></a>
   <a href="../../releases/latest"><img src="https://img.shields.io/github/downloads/ElloveeRising/small-talk/total?color=44BBCC&label=downloads" alt="Total downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-FFD24F" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/Android-15%2B-3DDC84?logo=android&logoColor=white" alt="Android 15+">
+  <img src="https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white" alt="Android 11+">
   <a href="https://buymeacoffee.com/aSchellCompany"><img src="https://img.shields.io/badge/%E2%98%95-buy%20me%20a%20coffee-FFDD00" alt="Buy Me a Coffee"></a>
 </p>
 
 **A private AI assistant that runs entirely on your Android phone. No accounts, no cloud, no telemetry. Nothing you type ever leaves your device.**
 
-Meet **Otto** — a little octopus who lives in the corner of the app, types your replies on a tiny keyboard, reads over your shoulder while you write, and falls asleep when you leave him alone too long. He's powered by Google's Gemma models running locally through [LiteRT-LM](https://ai.google.dev/edge/litert-lm), so every conversation happens on-device.
+Meet **Otto** — a little octopus who lives inside the app: he types your replies at a tiny workstation, reads over your shoulder while you write, wanders off to explore the screen when you leave him alone (tap him to call him home — he jets back with a puff of ink), paints sunflowers, dances when he thinks nobody's watching, and inks your whole screen when you wipe a conversation. He's powered by Google's Gemma models running locally through [LiteRT-LM](https://ai.google.dev/edge/litert-lm), so every conversation happens on-device.
 
 <p align="center">
   <img src="docs/screenshots/chat.png" alt="Chatting with Otto" width="260">&nbsp;&nbsp;<img src="docs/screenshots/typing.png" alt="Otto reads along while you type — thinking cap on" width="260">&nbsp;&nbsp;<img src="docs/screenshots/settings.png" alt="Settings — choose Otto's brain" width="260">
@@ -32,12 +32,12 @@ It's also built to give **real answers** — Otto won't dodge a straight questio
 
 ## Install (for everyone)
 
-> **Requirements:** An Android phone running Android 15 or newer, with at least ~4 GB of free RAM and ~4 GB of free storage for the model.
+> **Requirements:** An Android phone running Android 11 or newer, with at least ~4 GB of free RAM and ~4 GB of free storage for the model. (Newer phones run him fastest; a midrange 2021 Galaxy A53 runs him fine.)
 
 1. **Download the APK** from the [latest release](../../releases/latest) (the `.apk` file).
 2. **Open it** on your phone. Android will warn you it's from an "unknown source" — that's normal for any app not installed through the Play Store. Tap **Settings → Allow from this source**, then go back and tap the APK again to install.
 3. **Open Small Talk.** You'll meet Otto and a short setup wizard.
-4. **Give Otto a brain.** Tap **"Download Otto's brain"** — this fetches the Gemma 4 E2B model (~3 GB, one time). It's downloaded straight from Hugging Face into your `Downloads/SmallTalkModels/` folder.
+4. **Give Otto a brain.** Tap **"Download Otto's brain"** — this fetches the Gemma 4 E2B model (~3 GB, one time), straight from Hugging Face into Otto's own private folder. No permissions, no file juggling — it's the only step.
 5. **Done.** Wait for Otto to wake up, and start chatting.
 
 That's it. After the one-time model download, everything runs offline.
@@ -45,7 +45,7 @@ That's it. After the one-time model download, everything runs offline.
 ### Tips
 - **Thinking mode** (the lightbulb button, or tap Otto): Otto reasons step-by-step before answering. Better for hard questions, slower on-device. You'll see his reasoning live above each reply.
 - **Web search**: On by default. Otto can search the web and read pages to answer questions about current events. Turn it off in Settings to go fully offline.
-- **Bigger brain**: If you have a high-RAM phone, Settings lets you switch to the heavier Gemma 4 E4B model. Drop the `.litertlm` file in the same `SmallTalkModels` folder and it'll appear.
+- **Bigger brain**: If you have a high-RAM phone, the heavier Gemma 4 E4B model is one tap away — Settings → Brain → Download. Otto even changes color when he switches brains.
 - **Long-press Otto** for a little surprise. 🐙
 
 ---
@@ -84,7 +84,7 @@ Small Talk is a single-module Android app, Kotlin + Jetpack Compose.
 - Raw SQLite for the (ephemeral) chat history — no Room
 - OkHttp + Jsoup for the optional web tools and the model downloader
 - Coil for image thumbnails
-- AGP 8.7.3, Gradle 8.9, compileSdk / targetSdk 36, minSdk 35
+- AGP 8.7.3, Gradle 8.9, compileSdk / targetSdk 36, minSdk 30
 
 **To build a debug APK:**
 1. Open the project in Android Studio.
